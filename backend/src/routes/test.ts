@@ -1,32 +1,35 @@
 import type { Request, Response } from "express";
-import { PDFParse } from "pdf-parse";
+import PDFParser from "pdf2json";
+
 const test = async (req: Request, res: Response) => {
   try {
     const file = req.file;
     if (!file || !file.buffer) {
-      return res.status(400).json({ error: "No file buffer received." });
+      return res.status(400).json({ error: "No file received." });
     }
 
-    // 1. Initialize the parser with the buffer
-    const parser = new PDFParse({ data: file.buffer });
+    const pdfParser = new PDFParser();
 
-    // 2. Extract the text
-    const result = await parser.getText();
+    const text = await new Promise<string>((resolve, reject) => {
+      pdfParser.on("pdfParser_dataReady", (data) => {
+        // extract raw text from all pages
+        const rawText = data.Pages.map((page: any) =>
+          page.Texts.map((t: any) =>
+            decodeURIComponent(t.R.map((r: any) => r.T).join("")),
+          ).join(" "),
+        ).join("\n");
+        resolve(rawText);
+      });
 
-    // 3. (Optional) Get metadata like your example
-    const info = await parser.getInfo();
+      pdfParser.on("pdfParser_dataError", reject);
+      pdfParser.parseBuffer(file.buffer);
+    });
 
-    // 4. Clean up memory
-    await parser.destroy();
+    console.log("Extracted text:", text.slice(0, 200));
 
-
-console.log("Metadata:", info);
-console.log("Actual Data:", result.text);        
     res.json({
       message: "PDF parsed successfully",
-      text: result.text, // The actual decoded text
-      pages: info.total,
-      metadata: info.info,
+      text,
     });
   } catch (error) {
     console.error("Parsing error:", error);
