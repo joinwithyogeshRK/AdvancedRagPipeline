@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
+import { motion, AnimatePresence } from "framer-motion";
 
 const ChatPage = () => {
   const [message, setMessage] = useState("");
@@ -7,47 +8,68 @@ const ChatPage = () => {
   const [fileName, setFileName] = useState("");
   const [response, setResponse] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [charCount, setCharCount] = useState(0);
+  const [history, setHistory] = useState<{ q: string; a: string }[]>([]);
+  const [currentQ, setCurrentQ] = useState("");
+  const currentResponseRef = useRef("");
 
   const streamRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollAnchor = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (isStreaming) {
-      scrollAnchor.current?.scrollIntoView({ behavior: "smooth" });
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [response, isStreaming]);
+  }, [response, history, isStreaming]);
 
   const stopStreaming = () => {
     if (streamRef.current) clearTimeout(streamRef.current);
+    const partial = currentResponseRef.current;
+    if (partial && currentQ) {
+      setHistory((h) => [...h, { q: currentQ, a: partial + " [stopped]" }]);
+    }
     setIsStreaming(false);
+    setResponse("");
+    currentResponseRef.current = "";
+    setCurrentQ("");
   };
 
-  const typewriterStream = (text: string) => {
+  const typewriterStream = (text: string, question: string) => {
     setIsStreaming(true);
     setResponse("");
+    currentResponseRef.current = ""; // reset ref
+    setCurrentQ(question);
     let i = 0;
     const type = () => {
       if (i < text.length) {
-        setResponse(text.slice(0, i + 1));
-        const delay = text[i] === "\n" ? 20 : text[i] === "." ? 25 : 5;
+        const partial = text.slice(0, i + 1);
+        setResponse(partial);
+        currentResponseRef.current = partial; // keep ref in sync
+        const delay = text[i] === "\n" ? 18 : text[i] === "." ? 22 : 4;
         i++;
         streamRef.current = setTimeout(type, delay);
       } else {
         setIsStreaming(false);
+        setHistory((h) => [...h, { q: question, a: text }]);
+        setResponse("");
+        currentResponseRef.current = "";
+        setCurrentQ("");
       }
     };
     type();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
-    if (selected.type !== "application/pdf") {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.type !== "application/pdf") {
       alert("Only PDF files are allowed");
       return;
     }
-    setFile(selected);
-    setFileName(selected.name);
+    setFile(f);
+    setFileName(f.name);
   };
 
   const removeFile = () => {
@@ -57,136 +79,995 @@ const ChatPage = () => {
 
   const handleSend = async () => {
     if (!message.trim() || isStreaming) return;
-    const formData = new FormData();
-    if (file) formData.append("File", file);
-    formData.append("query", message);
+    const q = message.trim();
+    const fd = new FormData();
+    if (file) fd.append("File", file);
+    fd.append("query", q);
     setMessage("");
+    setCharCount(0);
     setIsStreaming(true);
-    setResponse("");
     try {
-      const res = await axios.post("http://localhost:3009/query", formData);
+      const res = await axios.post("http://localhost:3009/query", fd);
       const text = res.data?.text ?? JSON.stringify(res.data);
-      typewriterStream(text);
+      typewriterStream(text, q);
     } catch {
-      typewriterStream("Something went wrong. Please try again.");
+      typewriterStream("Something went wrong. Please try again.", q);
     }
   };
 
-  return (
-    <div className="relative h-screen w-full overflow-hidden font-bold text-white">
-      <img
-        className="absolute inset-0 z-0 h-full object-cover"
-        src="/bg.webp"
-        alt=""
-      />
+  const isEmpty = history.length === 0 && !isStreaming && !response;
 
-      {/*
-        SHELL — centres the widget in the viewport
-      */}
-      <div className="relative z-10 flex h-screen flex-col items-center justify-center px-4 py-6 sm:px-8">
-        {/*
-          CHAT WIDGET
-          ───────────
-          max-w-4xl  → matches the card's intended width
-          w-full     → shrinks on smaller screens
-          Both the card and input bar live here so they share
-          the exact same horizontal boundaries automatically.
-        */}
-        <div className="flex w-full max-w-4xl flex-col gap-3">
-          {/*
-            RESPONSE CARD
-            h-[700px]  fixed height, text scrolls inside
-            w-full     fills the max-w-4xl wrapper — same as input bar
-          */}
-          <div className="flex h-[700px] w-full flex-col rounded-2xl border border-pink-400/30 bg-black/30 backdrop-blur-lg">
-            <div className="min-h-0 flex-1 overflow-y-auto p-5">
-              <p className="min-h-[2rem] text-sm leading-relaxed whitespace-pre-wrap text-gray-200">
-                {isStreaming && response === "" ? (
-                  <span className="flex gap-1 pt-1">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
-                  </span>
-                ) : response ? (
-                  <>
-                    {response}
-                    {isStreaming && (
-                      <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-gray-200" />
-                    )}
-                  </>
-                ) : (
-                  <span className="text-gray-500 italic">
-                    Response will appear here…
-                  </span>
-                )}
-              </p>
-              <div ref={scrollAnchor} />
+  return (
+    <div style={s.root}>
+      {/* ── Atmosphere ── */}
+      <div style={s.grain} />
+      <div style={s.orbA} />
+      <div style={s.orbB} />
+      <div style={s.orbC} />
+      <svg
+        style={s.gridSvg}
+        width="100%"
+        height="100%"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern
+            id="grid"
+            width="52"
+            height="52"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 52 0 L 0 0 0 52"
+              fill="none"
+              stroke="#c9a84c"
+              strokeWidth="0.3"
+              strokeOpacity="0.07"
+            />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+      </svg>
+
+      <div style={s.shell}>
+        {/* ── Header ── */}
+        <motion.header
+          style={s.header}
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div style={s.brand}>
+            <div style={s.brandIcon}>
+              <motion.div
+                style={s.brandRing}
+                animate={{ rotate: 360 }}
+                transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+              />
+              <div style={s.brandCore} />
+            </div>
+            <div>
+              <div style={s.brandName}>ORACLE</div>
+              <div style={s.brandSub}>RAG Intelligence Engine</div>
             </div>
           </div>
 
-          {/*
-            INPUT BAR
-            w-full → fills the same max-w-4xl wrapper as the card above,
-                     so left and right edges are perfectly aligned.
-          */}
-          <div className="w-full flex-shrink-0">
-            <div className="flex items-center gap-3 rounded-3xl border border-pink-400 bg-black/30 p-3 backdrop-blur-lg">
+          <div style={s.headerRight}>
+            {file && (
+              <motion.div
+                style={s.headerFilePill}
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#c9a84c"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                >
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                <span style={s.headerFileText}>{fileName}</span>
+                <button onClick={removeFile} style={s.headerFileX}>
+                  ✕
+                </button>
+              </motion.div>
+            )}
+            <div style={s.livePill}>
+              <motion.span
+                style={s.liveDot}
+                animate={{ opacity: [1, 0.3, 1], scale: [1, 0.8, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
+              <span style={s.liveLabel}>LIVE</span>
+            </div>
+          </div>
+        </motion.header>
+
+        {/* ── Conversation Body ── */}
+        <div style={s.body} ref={scrollRef}>
+          <AnimatePresence>
+            {isEmpty && (
+              <motion.div
+                style={s.emptyState}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.6 }}
+              >
+                <div style={s.emptyOrb}>
+                  <motion.div
+                    style={s.emptyOrbRing}
+                    animate={{ rotate: 360 }}
+                    transition={{
+                      duration: 10,
+                      repeat: Infinity,
+                      ease: "linear",
+                    }}
+                  />
+                  <motion.div
+                    style={s.emptyOrbRing2}
+                    animate={{ rotate: -360 }}
+                    transition={{
+                      duration: 15,
+                      repeat: Infinity,
+                      ease: "linear",
+                    }}
+                  />
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#c9a84c"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  >
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </div>
+                <div style={s.emptyTitle}>Begin your inquiry</div>
+                <div style={s.emptyDesc}>
+                  Ask a question or attach a PDF document.
+                  <br />
+                  Oracle retrieves knowledge and generates precise answers.
+                </div>
+                <div style={s.emptyTags}>
+                  {[
+                    "Document Analysis",
+                    "Semantic Search",
+                    "RAG Pipeline",
+                    "Knowledge Retrieval",
+                  ].map((t) => (
+                    <span key={t} style={s.emptyTag}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── History ── */}
+          {history.map((item, i) => (
+            <motion.div
+              key={i}
+              style={s.turn}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {/* Question */}
+              <div style={s.questionRow}>
+                <div style={s.questionBubble}>
+                  <span style={s.questionLabel}>YOU</span>
+                  <p style={s.questionText}>{item.q}</p>
+                </div>
+              </div>
+
+              {/* Answer */}
+              <div style={s.answerRow}>
+                <div style={s.answerAvatar}>
+                  <div style={s.avatarInner}>O</div>
+                </div>
+                <div style={s.answerCard}>
+                  <div style={s.answerBar} />
+                  <span style={s.answerLabel}>ORACLE</span>
+                  <p style={s.answerText}>{item.a}</p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+
+          {/* ── Streaming Turn ── */}
+          <AnimatePresence>
+            {isStreaming && (
+              <motion.div
+                style={s.turn}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+              >
+                {currentQ && (
+                  <div style={s.questionRow}>
+                    <div style={s.questionBubble}>
+                      <span style={s.questionLabel}>YOU</span>
+                      <p style={s.questionText}>{currentQ}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div style={s.answerRow}>
+                  <div style={s.answerAvatar}>
+                    <motion.div
+                      style={s.avatarInner}
+                      animate={{
+                        boxShadow: [
+                          "0 0 0px #c9a84c00",
+                          "0 0 16px #c9a84c88",
+                          "0 0 0px #c9a84c00",
+                        ],
+                      }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      O
+                    </motion.div>
+                  </div>
+                  <div style={s.answerCard}>
+                    <div style={s.answerBar} />
+                    <div style={s.answerHeaderRow}>
+                      <span style={s.answerLabel}>ORACLE</span>
+                      <div style={s.generatingBadge}>
+                        <motion.span
+                          style={s.genDot}
+                          animate={{ opacity: [1, 0.2, 1] }}
+                          transition={{ duration: 0.9, repeat: Infinity }}
+                        />
+                        <span style={s.genLabel}>GENERATING</span>
+                      </div>
+                    </div>
+                    {response === "" ? (
+                      <div style={s.thinkRow}>
+                        {[0, 1, 2].map((i) => (
+                          <motion.span
+                            key={i}
+                            style={s.thinkDot}
+                            animate={{ y: [0, -7, 0], opacity: [0.3, 1, 0.3] }}
+                            transition={{
+                              duration: 0.85,
+                              repeat: Infinity,
+                              delay: i * 0.16,
+                              ease: "easeInOut",
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={s.answerText}>
+                        {response}
+                        <motion.span
+                          style={s.cursor}
+                          animate={{ opacity: [1, 0] }}
+                          transition={{ duration: 0.5, repeat: Infinity }}
+                        />
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* ── Input Bar ── */}
+        <motion.div
+          style={s.inputSection}
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {/* Stats bar */}
+          <div style={s.statsRow}>
+            <span style={s.stat}>
+              <span style={{ color: "#c9a84c" }}>{history.length}</span>{" "}
+              exchanges
+            </span>
+            <span style={s.statDivider}>·</span>
+            <span style={s.stat}>
+              <span style={{ color: file ? "#4ade80" : "#6b6b78" }}>
+                {file ? "PDF attached" : "No document"}
+              </span>
+            </span>
+            <span style={s.statDivider}>·</span>
+            <span style={s.stat}>
+              <span style={{ color: charCount > 200 ? "#f87171" : "#6b6b78" }}>
+                {charCount}
+              </span>{" "}
+              chars
+            </span>
+          </div>
+
+          <motion.div
+            style={{
+              ...s.inputWrap,
+              boxShadow: focused
+                ? "0 0 0 1.5px #c9a84c66, 0 8px 48px #c9a84c14, inset 0 1px 0 #c9a84c11"
+                : "0 0 0 1px #222230, 0 4px 24px #00000070, inset 0 1px 0 #ffffff06",
+            }}
+            transition={{ duration: 0.2 }}
+          >
+            {/* Attach */}
+            <AnimatePresence mode="wait">
               {!file ? (
-                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-gray-500 px-3 py-2 text-xs text-gray-400 transition-colors hover:border-pink-400 hover:text-pink-400">
-                  <span className="text-lg">+</span> Attach PDF
+                <motion.label
+                  key="attach"
+                  style={s.attachBtn}
+                  whileHover={{
+                    borderColor: "#c9a84c99",
+                    color: "#c9a84c",
+                    background: "#c9a84c0a",
+                  }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                  </svg>
+                  PDF
                   <input
                     type="file"
                     accept="application/pdf"
-                    className="hidden"
+                    style={{ display: "none" }}
                     onChange={handleFileChange}
                   />
-                </label>
+                </motion.label>
               ) : (
-                <div className="flex items-center gap-2 rounded-xl border border-pink-400/40 bg-pink-400/10 px-3 py-2 text-xs text-pink-300">
-                  <span className="max-w-[120px] truncate">{fileName}</span>
-                  <button
-                    onClick={removeFile}
-                    className="text-gray-400 hover:text-pink-400"
+                <motion.div
+                  key="chip"
+                  style={s.fileChip}
+                  initial={{ opacity: 0, scale: 0.88 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#4ade80"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
                   >
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <span style={s.chipName}>{fileName}</span>
+                  <button onClick={removeFile} style={s.chipX}>
                     ✕
                   </button>
-                </div>
+                </motion.div>
               )}
+            </AnimatePresence>
 
-              <input
-                className="flex-1 bg-transparent text-sm text-white placeholder-gray-400 focus:outline-none"
-                type="text"
-                placeholder="Ask anything about your PDF…"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" && !isStreaming && handleSend()
-                }
-              />
+            <div style={s.sep} />
 
+            <input
+              ref={inputRef}
+              style={s.input}
+              type="text"
+              placeholder="Ask anything about your document…"
+              value={message}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                setCharCount(e.target.value.length);
+              }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              onKeyDown={(e) =>
+                e.key === "Enter" && !isStreaming && handleSend()
+              }
+            />
+
+            <AnimatePresence mode="wait">
               {isStreaming ? (
-                <button
+                <motion.button
+                  key="stop"
                   onClick={stopStreaming}
-                  title="Stop streaming"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-pink-400 bg-black/40 transition hover:bg-pink-400/20"
+                  style={s.stopBtn}
+                  whileHover={{ scale: 1.08, background: "#c9a84c22" }}
+                  whileTap={{ scale: 0.92 }}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
                 >
-                  <span className="block h-3 w-3 rounded-sm bg-pink-400" />
-                </button>
+                  <span style={s.stopSq} />
+                </motion.button>
               ) : (
-                <button
+                <motion.button
+                  key="send"
                   onClick={handleSend}
                   disabled={!message.trim()}
-                  className="h-9 w-9 rounded-full bg-pink-400 p-2 transition hover:bg-pink-500 disabled:opacity-40"
+                  style={{
+                    ...s.sendBtn,
+                    ...(!message.trim() ? s.sendOff : {}),
+                  }}
+                  whileHover={message.trim() ? { scale: 1.07 } : {}}
+                  whileTap={message.trim() ? { scale: 0.91 } : {}}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
                 >
-                  <img src="/arrow.png" className="h-full w-full" alt="Send" />
-                </button>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </motion.button>
               )}
-            </div>
+            </AnimatePresence>
+          </motion.div>
+
+          <div style={s.footer}>
+            <span style={s.footerText}>
+              <kbd style={s.kbd}>Enter</kbd> to send &nbsp;·&nbsp; Powered by
+              RAG + Voyage + Groq
+            </span>
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );
+};
+
+/* ─────────────────────────────────────────────
+   STYLES
+───────────────────────────────────────────── */
+const s: Record<string, React.CSSProperties> = {
+  root: {
+    width: "100vw",
+    height: "100vh",
+    background: "#08080a",
+    overflow: "hidden",
+    fontFamily: "'DM Mono','Fira Mono','Courier New',monospace",
+    color: "#e2e2ec",
+    position: "relative",
+    display: "flex",
+  },
+
+  /* Atmosphere */
+  grain: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    opacity: 0.045,
+    pointerEvents: "none",
+    backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+    backgroundSize: "200px",
+  },
+  orbA: {
+    position: "absolute",
+    top: "-220px",
+    left: "-160px",
+    width: "600px",
+    height: "600px",
+    borderRadius: "50%",
+    background: "radial-gradient(circle, #c9a84c14 0%, transparent 65%)",
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+  orbB: {
+    position: "absolute",
+    bottom: "-250px",
+    right: "-200px",
+    width: "700px",
+    height: "700px",
+    borderRadius: "50%",
+    background: "radial-gradient(circle, #3a2a6014 0%, transparent 65%)",
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+  orbC: {
+    position: "absolute",
+    top: "40%",
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "800px",
+    height: "300px",
+    borderRadius: "50%",
+    background: "radial-gradient(ellipse, #c9a84c06 0%, transparent 70%)",
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+  gridSvg: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+
+  /* Shell */
+  shell: {
+    position: "relative",
+    zIndex: 1,
+    display: "flex",
+    flexDirection: "column",
+    width: "100%",
+    height: "100%",
+    maxWidth: "900px",
+    margin: "0 auto",
+    padding: "24px 20px 20px",
+    boxSizing: "border-box",
+  },
+
+  /* Header */
+  header: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "20px",
+    flexShrink: 0,
+    padding: "0 4px",
+  },
+  brand: { display: "flex", alignItems: "center", gap: "14px" },
+  brandIcon: {
+    width: "42px",
+    height: "42px",
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  brandRing: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "50%",
+    border: "1.5px solid transparent",
+    borderTopColor: "#c9a84c",
+    borderRightColor: "#c9a84c44",
+  },
+  brandCore: {
+    width: "18px",
+    height: "18px",
+    borderRadius: "50%",
+    background: "radial-gradient(circle, #c9a84c 0%, #7a5820 100%)",
+    boxShadow: "0 0 12px #c9a84c60",
+  },
+  brandName: {
+    fontSize: "16px",
+    fontWeight: 700,
+    letterSpacing: "0.3em",
+    color: "#c9a84c",
+    lineHeight: 1,
+  },
+  brandSub: {
+    fontSize: "9px",
+    letterSpacing: "0.15em",
+    color: "#6b6b78",
+    marginTop: "4px",
+    fontWeight: 400,
+  },
+  headerRight: { display: "flex", alignItems: "center", gap: "10px" },
+  headerFilePill: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    padding: "5px 11px",
+    borderRadius: "999px",
+    border: "1px solid #4ade8033",
+    background: "#4ade800d",
+  },
+  headerFileText: {
+    fontSize: "10px",
+    color: "#4ade80",
+    maxWidth: "100px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  headerFileX: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: "#6b6b78",
+    fontSize: "10px",
+    padding: 0,
+    lineHeight: 1,
+  },
+  livePill: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    padding: "6px 14px",
+    borderRadius: "999px",
+    border: "1px solid #222230",
+    background: "#111118",
+  },
+  liveDot: {
+    display: "inline-block",
+    width: "6px",
+    height: "6px",
+    borderRadius: "50%",
+    background: "#4ade80",
+    boxShadow: "0 0 8px #4ade8088",
+  },
+  liveLabel: {
+    fontSize: "9px",
+    letterSpacing: "0.2em",
+    color: "#6b6b78",
+    fontWeight: 600,
+  },
+
+  /* Body */
+  body: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
+    padding: "8px 4px 16px",
+    scrollbarWidth: "thin",
+    scrollbarColor: "#222230 transparent",
+    display: "flex",
+    flexDirection: "column",
+    gap: "32px",
+  },
+
+  /* Empty State */
+  emptyState: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "60px 20px",
+    gap: "20px",
+    textAlign: "center",
+  },
+  emptyOrb: {
+    width: "80px",
+    height: "80px",
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyOrbRing: {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "50%",
+    border: "1.5px solid transparent",
+    borderTopColor: "#c9a84c66",
+    borderRightColor: "#c9a84c22",
+  },
+  emptyOrbRing2: {
+    position: "absolute",
+    inset: "8px",
+    borderRadius: "50%",
+    border: "1px solid transparent",
+    borderBottomColor: "#c9a84c44",
+    borderLeftColor: "#c9a84c11",
+  },
+  emptyTitle: {
+    fontSize: "20px",
+    fontWeight: 600,
+    letterSpacing: "0.05em",
+    color: "#c8c8d8",
+    fontFamily: "'DM Sans','Segoe UI',sans-serif",
+  },
+  emptyDesc: {
+    fontSize: "13px",
+    color: "#4a4a5a",
+    lineHeight: "1.8",
+    fontFamily: "'DM Sans','Segoe UI',sans-serif",
+    maxWidth: "360px",
+  },
+  emptyTags: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    justifyContent: "center",
+    marginTop: "8px",
+  },
+  emptyTag: {
+    fontSize: "10px",
+    letterSpacing: "0.12em",
+    padding: "5px 12px",
+    borderRadius: "999px",
+    border: "1px solid #222230",
+    color: "#4a4a58",
+    background: "#111118",
+  },
+
+  /* Conversation Turn */
+  turn: { display: "flex", flexDirection: "column", gap: "16px" },
+
+  /* Question */
+  questionRow: { display: "flex", justifyContent: "flex-end" },
+  questionBubble: {
+    maxWidth: "70%",
+    background: "#141420",
+    border: "1px solid #252535",
+    borderRadius: "16px 16px 4px 16px",
+    padding: "14px 18px",
+  },
+  questionLabel: {
+    fontSize: "9px",
+    letterSpacing: "0.2em",
+    color: "#6b6b78",
+    display: "block",
+    marginBottom: "6px",
+  },
+  questionText: {
+    margin: 0,
+    fontSize: "14px",
+    lineHeight: "1.7",
+    color: "#c8c8d8",
+    fontFamily: "'DM Sans','Segoe UI',sans-serif",
+    fontWeight: 400,
+  },
+
+  /* Answer */
+  answerRow: { display: "flex", gap: "14px", alignItems: "flex-start" },
+  answerAvatar: {
+    width: "38px",
+    height: "38px",
+    flexShrink: 0,
+    borderRadius: "50%",
+    border: "1.5px solid #c9a84c44",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#111118",
+  },
+  avatarInner: {
+    fontSize: "14px",
+    fontWeight: 700,
+    color: "#c9a84c",
+    letterSpacing: "0.05em",
+  },
+  answerCard: {
+    flex: 1,
+    background: "#0e0e14",
+    border: "1px solid #1e1e2a",
+    borderRadius: "4px 16px 16px 16px",
+    padding: "16px 18px",
+    position: "relative",
+    overflow: "hidden",
+  },
+  answerBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "2px",
+    background:
+      "linear-gradient(90deg, #c9a84c 0%, #c9a84c55 60%, transparent 100%)",
+  },
+  answerHeaderRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginBottom: "10px",
+  },
+  answerLabel: {
+    fontSize: "9px",
+    letterSpacing: "0.2em",
+    color: "#c9a84c88",
+    display: "block",
+  },
+  answerText: {
+    margin: 0,
+    fontSize: "14px",
+    lineHeight: "1.85",
+    color: "#d0d0e0",
+    fontFamily: "'DM Sans','Segoe UI',sans-serif",
+    whiteSpace: "pre-wrap",
+    fontWeight: 400,
+  },
+
+  /* Streaming */
+  generatingBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    padding: "2px 9px",
+    borderRadius: "999px",
+    border: "1px solid #c9a84c33",
+    background: "#c9a84c0a",
+  },
+  genDot: {
+    display: "inline-block",
+    width: "5px",
+    height: "5px",
+    borderRadius: "50%",
+    background: "#c9a84c",
+  },
+  genLabel: {
+    fontSize: "8px",
+    letterSpacing: "0.2em",
+    color: "#c9a84c88",
+    fontWeight: 600,
+  },
+  thinkRow: {
+    display: "flex",
+    gap: "7px",
+    alignItems: "center",
+    padding: "6px 0",
+  },
+  thinkDot: {
+    display: "inline-block",
+    width: "7px",
+    height: "7px",
+    borderRadius: "50%",
+    background: "#c9a84c",
+  },
+  cursor: {
+    display: "inline-block",
+    width: "2px",
+    height: "14px",
+    background: "#c9a84c",
+    borderRadius: "1px",
+    marginLeft: "2px",
+    verticalAlign: "text-bottom",
+  },
+
+  /* Input Section */
+  inputSection: {
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  statsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "0 6px",
+    marginBottom: "2px",
+  },
+  stat: { fontSize: "10px", color: "#3a3a48", letterSpacing: "0.06em" },
+  statDivider: { color: "#2a2a38", fontSize: "10px" },
+
+  inputWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    borderRadius: "16px",
+    border: "1px solid #222230",
+    background: "#0e0e14",
+    padding: "10px 12px",
+    transition: "box-shadow 0.2s",
+  },
+  attachBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "7px 13px",
+    borderRadius: "10px",
+    border: "1px dashed #2a2a38",
+    color: "#6b6b78",
+    fontSize: "10px",
+    letterSpacing: "0.1em",
+    fontWeight: 500,
+    cursor: "pointer",
+    flexShrink: 0,
+    fontFamily: "'DM Mono',monospace",
+    userSelect: "none",
+    transition: "all 0.2s",
+  },
+  fileChip: {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    padding: "6px 11px",
+    borderRadius: "10px",
+    border: "1px solid #4ade8033",
+    background: "#4ade800d",
+    flexShrink: 0,
+  },
+  chipName: {
+    fontSize: "10px",
+    color: "#4ade80",
+    maxWidth: "100px",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  chipX: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: "#6b6b78",
+    fontSize: "10px",
+    padding: "0 2px",
+    lineHeight: 1,
+  },
+  sep: { width: "1px", height: "22px", background: "#1e1e2a", flexShrink: 0 },
+  input: {
+    flex: 1,
+    background: "transparent",
+    border: "none",
+    outline: "none",
+    color: "#e0e0ec",
+    fontSize: "14px",
+    fontFamily: "'DM Sans','Segoe UI',sans-serif",
+    letterSpacing: "0.01em",
+    lineHeight: "1.5",
+  },
+  sendBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "38px",
+    height: "38px",
+    borderRadius: "12px",
+    border: "none",
+    background: "linear-gradient(135deg, #c9a84c 0%, #9a7228 100%)",
+    color: "#08080a",
+    cursor: "pointer",
+    flexShrink: 0,
+    boxShadow: "0 2px 16px #c9a84c44",
+  },
+  sendOff: { opacity: 0.25, cursor: "not-allowed", boxShadow: "none" },
+  stopBtn: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "38px",
+    height: "38px",
+    borderRadius: "12px",
+    border: "1px solid #c9a84c44",
+    background: "#c9a84c0a",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "background 0.2s",
+  },
+  stopSq: {
+    display: "block",
+    width: "12px",
+    height: "12px",
+    borderRadius: "3px",
+    background: "#c9a84c",
+  },
+
+  /* Footer */
+  footer: { display: "flex", justifyContent: "center" },
+  footerText: {
+    fontSize: "10px",
+    color: "#2e2e3c",
+    letterSpacing: "0.05em",
+    fontFamily: "'DM Mono',monospace",
+  },
+  kbd: {
+    padding: "1px 5px",
+    borderRadius: "4px",
+    border: "1px solid #222230",
+    background: "#111118",
+    color: "#4a4a58",
+    fontSize: "9px",
+  },
 };
 
 export default ChatPage;
