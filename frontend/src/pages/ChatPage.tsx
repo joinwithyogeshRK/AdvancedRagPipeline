@@ -2,6 +2,18 @@ import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Hardcode a userId for now — replace with real auth later
+const getOrCreateUserId = () => {
+  let id = localStorage.getItem("oracle_user_id");
+  if (!id) {
+    id = crypto.randomUUID(); // generates a proper UUID
+    localStorage.setItem("oracle_user_id", id);
+  }
+  return id;
+};
+
+const USER_ID = getOrCreateUserId();
+
 const ChatPage = () => {
   const [message, setMessage] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -12,6 +24,7 @@ const ChatPage = () => {
   const [charCount, setCharCount] = useState(0);
   const [history, setHistory] = useState<{ q: string; a: string }[]>([]);
   const [currentQ, setCurrentQ] = useState("");
+  const [chatId, setChatId] = useState<string | null>(null); // ← track active chat
   const currentResponseRef = useRef("");
 
   const streamRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,14 +52,14 @@ const ChatPage = () => {
   const typewriterStream = (text: string, question: string) => {
     setIsStreaming(true);
     setResponse("");
-    currentResponseRef.current = ""; // reset ref
+    currentResponseRef.current = "";
     setCurrentQ(question);
     let i = 0;
     const type = () => {
       if (i < text.length) {
         const partial = text.slice(0, i + 1);
         setResponse(partial);
-        currentResponseRef.current = partial; // keep ref in sync
+        currentResponseRef.current = partial;
         const delay = text[i] === "\n" ? 18 : text[i] === "." ? 22 : 4;
         i++;
         streamRef.current = setTimeout(type, delay);
@@ -77,18 +90,45 @@ const ChatPage = () => {
     setFileName("");
   };
 
+  // ── Start a brand new chat ──
+  const handleNewChat = () => {
+    if (isStreaming) stopStreaming();
+    setChatId(null);
+    setHistory([]);
+    setMessage("");
+    setCharCount(0);
+    setFile(null);
+    setFileName("");
+    setResponse("");
+    currentResponseRef.current = "";
+    setCurrentQ("");
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
   const handleSend = async () => {
     if (!message.trim() || isStreaming) return;
     const q = message.trim();
+
     const fd = new FormData();
     if (file) fd.append("File", file);
     fd.append("query", q);
+    fd.append("userId", USER_ID);
+    // Pass chatId if we're continuing an existing chat
+    if (chatId) fd.append("chatId", chatId);
+
     setMessage("");
     setCharCount(0);
     setIsStreaming(true);
+
     try {
       const res = await axios.post("http://localhost:3009/query", fd);
       const text = res.data?.text ?? JSON.stringify(res.data);
+
+      // Save the chatId returned from backend for subsequent messages
+      if (res.data?.chatId && !chatId) {
+        setChatId(res.data.chatId);
+      }
+
       typewriterStream(text, q);
     } catch {
       typewriterStream("Something went wrong. Please try again.", q);
@@ -153,6 +193,17 @@ const ChatPage = () => {
           </div>
 
           <div style={s.headerRight}>
+            {/* ── Chat ID badge ── */}
+            {chatId && (
+              <motion.div
+                style={s.chatIdPill}
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+              >
+                <span style={s.chatIdText}>#{chatId.slice(0, 8)}</span>
+              </motion.div>
+            )}
+
             {file && (
               <motion.div
                 style={s.headerFilePill}
@@ -177,6 +228,30 @@ const ChatPage = () => {
                 </button>
               </motion.div>
             )}
+
+            {/* ── New Chat button ── */}
+            <motion.button
+              onClick={handleNewChat}
+              style={s.newChatBtn}
+              whileHover={{ borderColor: "#c9a84c99", color: "#c9a84c" }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              NEW CHAT
+            </motion.button>
+
             <div style={s.livePill}>
               <motion.span
                 style={s.liveDot}
@@ -233,9 +308,9 @@ const ChatPage = () => {
                 </div>
                 <div style={s.emptyTitle}>Begin your inquiry</div>
                 <div style={s.emptyDesc}>
-                  Ask a question or attach a PDF document.
+                  Ask any question directly, or attach a PDF for
                   <br />
-                  Oracle retrieves knowledge and generates precise answers.
+                  document-aware retrieval and precise answers.
                 </div>
                 <div style={s.emptyTags}>
                   {[
@@ -262,15 +337,12 @@ const ChatPage = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
             >
-              {/* Question */}
               <div style={s.questionRow}>
                 <div style={s.questionBubble}>
                   <span style={s.questionLabel}>YOU</span>
                   <p style={s.questionText}>{item.q}</p>
                 </div>
               </div>
-
-              {/* Answer */}
               <div style={s.answerRow}>
                 <div style={s.answerAvatar}>
                   <div style={s.avatarInner}>O</div>
@@ -301,7 +373,6 @@ const ChatPage = () => {
                     </div>
                   </div>
                 )}
-
                 <div style={s.answerRow}>
                   <div style={s.answerAvatar}>
                     <motion.div
@@ -371,7 +442,6 @@ const ChatPage = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
         >
-          {/* Stats bar */}
           <div style={s.statsRow}>
             <span style={s.stat}>
               <span style={{ color: "#c9a84c" }}>{history.length}</span>{" "}
@@ -390,6 +460,12 @@ const ChatPage = () => {
               </span>{" "}
               chars
             </span>
+            <span style={s.statDivider}>·</span>
+            <span style={s.stat}>
+              <span style={{ color: chatId ? "#c9a84c" : "#6b6b78" }}>
+                {chatId ? "Chat active" : "New session"}
+              </span>
+            </span>
           </div>
 
           <motion.div
@@ -401,7 +477,6 @@ const ChatPage = () => {
             }}
             transition={{ duration: 0.2 }}
           >
-            {/* Attach */}
             <AnimatePresence mode="wait">
               {!file ? (
                 <motion.label
@@ -470,7 +545,7 @@ const ChatPage = () => {
               ref={inputRef}
               style={s.input}
               type="text"
-              placeholder="Ask anything about your document…"
+              placeholder="Ask anything… (attach a PDF for document Q&A)"
               value={message}
               onChange={(e) => {
                 setMessage(e.target.value);
@@ -532,8 +607,8 @@ const ChatPage = () => {
 
           <div style={s.footer}>
             <span style={s.footerText}>
-              <kbd style={s.kbd}>Enter</kbd> to send &nbsp;·&nbsp; Powered by
-              RAG + Voyage + Groq
+              <kbd style={s.kbd}>Enter</kbd> to send &nbsp;·&nbsp; PDF optional
+              &nbsp;·&nbsp; Powered by RAG + Voyage + Groq
             </span>
           </div>
         </motion.div>
@@ -556,8 +631,6 @@ const s: Record<string, React.CSSProperties> = {
     position: "relative",
     display: "flex",
   },
-
-  /* Atmosphere */
   grain: {
     position: "absolute",
     inset: 0,
@@ -601,14 +674,7 @@ const s: Record<string, React.CSSProperties> = {
     zIndex: 0,
     pointerEvents: "none",
   },
-  gridSvg: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 0,
-    pointerEvents: "none",
-  },
-
-  /* Shell */
+  gridSvg: { position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" },
   shell: {
     position: "relative",
     zIndex: 1,
@@ -621,8 +687,6 @@ const s: Record<string, React.CSSProperties> = {
     padding: "24px 20px 20px",
     boxSizing: "border-box",
   },
-
-  /* Header */
   header: {
     display: "flex",
     alignItems: "center",
@@ -670,6 +734,34 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight: 400,
   },
   headerRight: { display: "flex", alignItems: "center", gap: "10px" },
+
+  // ── New styles ──
+  chatIdPill: {
+    display: "flex",
+    alignItems: "center",
+    padding: "5px 11px",
+    borderRadius: "999px",
+    border: "1px solid #c9a84c33",
+    background: "#c9a84c0a",
+  },
+  chatIdText: { fontSize: "10px", color: "#c9a84c88", letterSpacing: "0.1em" },
+  newChatBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "6px 14px",
+    borderRadius: "999px",
+    border: "1px solid #222230",
+    background: "#111118",
+    color: "#6b6b78",
+    fontSize: "9px",
+    letterSpacing: "0.15em",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "'DM Mono',monospace",
+    transition: "all 0.2s",
+  },
+
   headerFilePill: {
     display: "flex",
     alignItems: "center",
@@ -719,8 +811,6 @@ const s: Record<string, React.CSSProperties> = {
     color: "#6b6b78",
     fontWeight: 600,
   },
-
-  /* Body */
   body: {
     flex: 1,
     minHeight: 0,
@@ -733,8 +823,6 @@ const s: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     gap: "32px",
   },
-
-  /* Empty State */
   emptyState: {
     flex: 1,
     display: "flex",
@@ -799,11 +887,7 @@ const s: Record<string, React.CSSProperties> = {
     color: "#4a4a58",
     background: "#111118",
   },
-
-  /* Conversation Turn */
   turn: { display: "flex", flexDirection: "column", gap: "16px" },
-
-  /* Question */
   questionRow: { display: "flex", justifyContent: "flex-end" },
   questionBubble: {
     maxWidth: "70%",
@@ -827,8 +911,6 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: "'DM Sans','Segoe UI',sans-serif",
     fontWeight: 400,
   },
-
-  /* Answer */
   answerRow: { display: "flex", gap: "14px", alignItems: "flex-start" },
   answerAvatar: {
     width: "38px",
@@ -886,8 +968,6 @@ const s: Record<string, React.CSSProperties> = {
     whiteSpace: "pre-wrap",
     fontWeight: 400,
   },
-
-  /* Streaming */
   generatingBadge: {
     display: "flex",
     alignItems: "center",
@@ -932,8 +1012,6 @@ const s: Record<string, React.CSSProperties> = {
     marginLeft: "2px",
     verticalAlign: "text-bottom",
   },
-
-  /* Input Section */
   inputSection: {
     flexShrink: 0,
     display: "flex",
@@ -949,7 +1027,6 @@ const s: Record<string, React.CSSProperties> = {
   },
   stat: { fontSize: "10px", color: "#3a3a48", letterSpacing: "0.06em" },
   statDivider: { color: "#2a2a38", fontSize: "10px" },
-
   inputWrap: {
     display: "flex",
     alignItems: "center",
@@ -1051,8 +1128,6 @@ const s: Record<string, React.CSSProperties> = {
     borderRadius: "3px",
     background: "#c9a84c",
   },
-
-  /* Footer */
   footer: { display: "flex", justifyContent: "center" },
   footerText: {
     fontSize: "10px",

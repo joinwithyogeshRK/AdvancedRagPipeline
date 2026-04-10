@@ -4,11 +4,19 @@ import { chunkText } from "../rag/chunker.js";
 import { embedChunks, embedQuery } from "../rag/embedder.js";
 import { storeInPinecone, searchPinecone } from "../rag/pinecone.js";
 import { askGroq } from "../rag/groq.js";
+import {
+  upsertUser,
+  createChat,
+  saveMessage,
+  getChatMessages,
+} from "../services/historyService.js";
 
 const pdf = async (req: Request, res: Response) => {
   try {
     const file = req.file;
     const query = req.body.query;
+    const userId = req.body.userId;
+    let chatId = req.body.chatId;
 
     if (!query) {
       return res.status(400).json({ error: "No query provided." });
@@ -41,25 +49,51 @@ const pdf = async (req: Request, res: Response) => {
       console.log("✅ Step 4 — Stored in Pinecone");
     }
 
-    // Always embed the query and search Pinecone
-    // (whether a new PDF was just uploaded or user is querying existing data)
+    // Always embed query and search Pinecone
     const queryVector = await embedQuery(query);
     console.log("✅ Step 5 — Query embedded");
 
     const relevantChunks = await searchPinecone(queryVector);
     console.log(`✅ Step 6 — ${relevantChunks.length} relevant chunks found`);
 
-    // If Pinecone returned nothing — fall back to Groq general knowledge
     if (relevantChunks.length === 0) {
       console.log(
-        "⚠️  No chunks found in Pinecone — falling back to Groq general knowledge",
+        "⚠️  No chunks found — falling back to Groq general knowledge",
       );
     }
 
-    const answer = await askGroq(query, relevantChunks);
-    console.log("✅ Step 7 — Answer generated");
+    // Fetch conversation history from Supabase if chatId exists
+    let conversationHistory: { role: "user" | "assistant"; content: string }[] =
+      [];
+    if (chatId) {
+      const previousMessages = await getChatMessages(chatId);
+      conversationHistory = previousMessages.flatMap((m: any) => [
+        { role: "user" as const, content: m.query },
+        { role: "assistant" as const, content: m.answer },
+      ]);
+      console.log(
+        `✅ Step 7 — Loaded ${previousMessages.length} previous messages`,
+      );
+    }
 
-    res.json({ text: answer });
+    const answer = await askGroq(query, relevantChunks, conversationHistory);
+    console.log("✅ Step 8 — Answer generated");
+
+    if (userId) {
+      await upsertUser(userId);
+      console.log("✅ Step 9 — User upserted");
+
+      if (!chatId) {
+        const newChat = await createChat(userId, query);
+        chatId = newChat.id;
+        console.log("✅ Step 10 — New chat created:", chatId);
+      }
+
+      await saveMessage(chatId, userId, query, answer, !!(file && file.buffer));
+      console.log("✅ Step 11 — Message saved to Supabase");
+    }
+
+    res.json({ text: answer, chatId: chatId ?? null });
   } catch (error) {
     console.error("Error:", error);
     res.status(500).json({ error: "Failed to process request" });

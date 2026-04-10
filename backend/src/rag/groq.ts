@@ -8,6 +8,7 @@ const groq = new Groq({
 export const askGroq = async (
   question: string,
   relevantChunks: string[],
+  conversationHistory: { role: "user" | "assistant"; content: string }[] = [],
 ): Promise<string> => {
   const hasPDF = relevantChunks.length > 0;
 
@@ -30,6 +31,8 @@ Be concise and accurate.`
 Answer the user's question using your general knowledge.
 Be concise and accurate.`,
       },
+      // Previous messages for conversation memory
+      ...conversationHistory,
       {
         role: "user",
         content: hasPDF
@@ -40,8 +43,6 @@ Be concise and accurate.`,
   });
 
   const answer = response.choices[0]?.message.content ?? "No answer generated";
-
   console.log("✅ Groq answered", response.choices[0]?.message);
-
   return answer;
 };
