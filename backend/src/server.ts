@@ -1,10 +1,8 @@
 import express from "express";
 import cors from "cors";
 import { Router } from "express";
-import pdfText from "./routes/pdf.js";
+import test from "./routes/pdf.js";
 import multer from "multer";
-import { chunkText } from "./rag/chunker.js";
-import "dotenv/config";
 
 
 const app = express();
@@ -18,7 +16,7 @@ const data = multer().single("File");
 const router1 = Router();
 app.use(router1);
 
-router1.post("/query", data, pdfText);
+router1.post("/query", data, test);
 
 
 

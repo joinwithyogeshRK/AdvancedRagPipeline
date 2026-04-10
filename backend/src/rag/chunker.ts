@@ -4,8 +4,8 @@ import { TokenTextSplitter } from "@langchain/textsplitters";
 const chunkText = async (document: string) => {
     const splitter = new TokenTextSplitter({
       encodingName: "cl100k_base",
-      chunkSize: 100,
-      chunkOverlap: 30,
+      chunkSize: 1000,
+      chunkOverlap: 100,
     });
 
     const texts = splitter.splitText(document);
