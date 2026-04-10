@@ -1,9 +1,7 @@
 import "dotenv/config";
 import Groq from "groq-sdk";
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 export const askGroq = async (
   question: string,
@@ -11,6 +9,7 @@ export const askGroq = async (
   conversationHistory: { role: "user" | "assistant"; content: string }[] = [],
 ): Promise<string> => {
   const hasPDF = relevantChunks.length > 0;
+  const hasHistory = conversationHistory.length > 0;
 
   const context = hasPDF
     ? relevantChunks.map((chunk, i) => `Chunk ${i + 1}:\n${chunk}`).join("\n\n")
@@ -21,22 +20,27 @@ export const askGroq = async (
     messages: [
       {
         role: "system",
-        content: hasPDF
-          ? `You are a helpful assistant that answers questions 
-based ONLY on the provided context from a PDF document.
-If the answer is not in the context, say "I could not find 
-the answer in the provided document."
-Be concise and accurate.`
-          : `You are a helpful assistant. 
-Answer the user's question using your general knowledge.
-Be concise and accurate.`,
+        content: `You are a helpful conversational assistant called Oracle.
+
+${
+  hasPDF
+    ? `You have access to relevant document context to help answer questions.
+Use the document context when the question is about the document.
+If the question is conversational or a follow-up (like "explain more", "i don't understand", "what do you mean", "tell me more"), 
+answer naturally based on the conversation history — do NOT say you cannot find it in the document.`
+    : `Answer the user's question using your general knowledge and the conversation history.`
+}
+
+Always be helpful, friendly, and conversational.
+If the user seems confused, explain your previous answer more simply.
+Never ask the user to rephrase unless absolutely necessary.`,
       },
-      // Previous messages for conversation memory
+      // Full conversation history for memory
       ...conversationHistory,
       {
         role: "user",
         content: hasPDF
-          ? `Context:\n${context}\n\nQuestion: ${question}`
+          ? `Document context:\n${context}\n\nQuestion: ${question}`
           : question,
       },
     ],

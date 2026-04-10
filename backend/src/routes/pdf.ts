@@ -52,7 +52,7 @@ const pdf = async (req: Request, res: Response) => {
     // Always embed query and search Pinecone
     const queryVector = await embedQuery(query);
     console.log("✅ Step 5 — Query embedded");
-
+    //@ts-ignore
     const relevantChunks = await searchPinecone(queryVector);
     console.log(`✅ Step 6 — ${relevantChunks.length} relevant chunks found`);
 

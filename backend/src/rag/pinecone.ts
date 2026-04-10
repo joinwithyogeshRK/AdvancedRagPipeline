@@ -26,19 +26,23 @@ export const storeInPinecone = async (
 // search pinecone with query vector
 export const searchPinecone = async (
   queryVector: number[],
-  topK: number = 5
+  topK: number = 5,
+  includeMetadata: true,
 ) => {
-
   const results = await index.query({
-    vector          : queryVector,
-    topK            : topK,
-    includeMetadata : true
-  })
+    vector: queryVector,
+    topK: topK,
+    includeMetadata: true,
+  });
+  // Only use chunks with high relevance score (above 0.75)
+  const relevant =
+    results.matches?.filter((m) => m.score && m.score > 0.75) ?? [];
 
-  const chunks = results.matches.map(match => 
-    match.metadata?.text as string
-  )
+  console.log(
+    `✅ Found ${relevant.length} relevant chunks (filtered from ${results.matches?.length ?? 0})`,
+  );
+  const chunks = relevant.map((match) => match.metadata?.text as string);
 
-  console.log(`✅ Found ${chunks.length} relevant chunks`)
-  return chunks
-}
+  console.log(`✅ Found ${chunks.length} relevant chunks`);
+  return chunks;
+};;

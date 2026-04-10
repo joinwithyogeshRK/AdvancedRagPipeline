@@ -2,17 +2,26 @@ import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 
-// Hardcode a userId for now — replace with real auth later
 const getOrCreateUserId = () => {
   let id = localStorage.getItem("oracle_user_id");
   if (!id) {
-    id = crypto.randomUUID(); // generates a proper UUID
+    id = crypto.randomUUID();
     localStorage.setItem("oracle_user_id", id);
   }
   return id;
 };
 
 const USER_ID = getOrCreateUserId();
+
+interface HistoryItem {
+  q: string;
+  a: string;
+}
+interface Chat {
+  id: string;
+  title: string;
+  created_at: string;
+}
 
 const ChatPage = () => {
   const [message, setMessage] = useState("");
@@ -22,11 +31,14 @@ const ChatPage = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [focused, setFocused] = useState(false);
   const [charCount, setCharCount] = useState(0);
-  const [history, setHistory] = useState<{ q: string; a: string }[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentQ, setCurrentQ] = useState("");
-  const [chatId, setChatId] = useState<string | null>(null); // ← track active chat
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [loadingChats, setLoadingChats] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const currentResponseRef = useRef("");
-
   const streamRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -36,6 +48,61 @@ const ChatPage = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [response, history, isStreaming]);
+
+  // Fetch all chats when sidebar opens
+  useEffect(() => {
+    if (sidebarOpen) fetchChats();
+  }, [sidebarOpen]);
+
+  const fetchChats = async () => {
+    setLoadingChats(true);
+    try {
+      const res = await axios.get(
+        `http://localhost:3009/history/chats/${USER_ID}`,
+      );
+      setChats(res.data.chats ?? []);
+    } catch {
+      setChats([]);
+    } finally {
+      setLoadingChats(false);
+    }
+  };
+
+  // Load a previous chat's messages
+  const loadChat = async (selectedChatId: string, title: string) => {
+    if (isStreaming) stopStreaming();
+    setLoadingMessages(true);
+    try {
+      const res = await axios.get(
+        `http://localhost:3009/history/messages/${selectedChatId}`,
+      );
+      const messages = res.data.messages ?? [];
+      const loaded: HistoryItem[] = messages.map((m: any) => ({
+        q: m.query,
+        a: m.answer,
+      }));
+      setHistory(loaded);
+      setChatId(selectedChatId);
+      setFile(null);
+      setFileName("");
+      setMessage("");
+      setCharCount(0);
+      setSidebarOpen(false);
+    } catch {
+      // fail silently
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  const deleteChat = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await axios.delete(`http://localhost:3009/history/chats/${id}`);
+      setChats((prev) => prev.filter((c) => c.id !== id));
+      if (chatId === id) handleNewChat();
+    } catch {}
+  };
 
   const stopStreaming = () => {
     if (streamRef.current) clearTimeout(streamRef.current);
@@ -90,7 +157,6 @@ const ChatPage = () => {
     setFileName("");
   };
 
-  // ── Start a brand new chat ──
   const handleNewChat = () => {
     if (isStreaming) stopStreaming();
     setChatId(null);
@@ -108,27 +174,22 @@ const ChatPage = () => {
   const handleSend = async () => {
     if (!message.trim() || isStreaming) return;
     const q = message.trim();
-
     const fd = new FormData();
     if (file) fd.append("File", file);
     fd.append("query", q);
     fd.append("userId", USER_ID);
-    // Pass chatId if we're continuing an existing chat
     if (chatId) fd.append("chatId", chatId);
-
     setMessage("");
     setCharCount(0);
     setIsStreaming(true);
-
     try {
       const res = await axios.post("http://localhost:3009/query", fd);
       const text = res.data?.text ?? JSON.stringify(res.data);
-
-      // Save the chatId returned from backend for subsequent messages
       if (res.data?.chatId && !chatId) {
         setChatId(res.data.chatId);
+        // refresh sidebar list if open
+        if (sidebarOpen) fetchChats();
       }
-
       typewriterStream(text, q);
     } catch {
       typewriterStream("Something went wrong. Please try again.", q);
@@ -137,9 +198,18 @@ const ChatPage = () => {
 
   const isEmpty = history.length === 0 && !isStreaming && !response;
 
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   return (
     <div style={s.root}>
-      {/* ── Atmosphere ── */}
       <div style={s.grain} />
       <div style={s.orbA} />
       <div style={s.orbB} />
@@ -169,6 +239,143 @@ const ChatPage = () => {
         <rect width="100%" height="100%" fill="url(#grid)" />
       </svg>
 
+      {/* ── Sidebar Overlay ── */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div
+              style={s.sidebarOverlay}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSidebarOpen(false)}
+            />
+            <motion.div
+              style={s.sidebar}
+              initial={{ x: -320 }}
+              animate={{ x: 0 }}
+              exit={{ x: -320 }}
+              transition={{ type: "spring", damping: 28, stiffness: 260 }}
+            >
+              {/* Sidebar Header */}
+              <div style={s.sidebarHeader}>
+                <span style={s.sidebarTitle}>CHAT HISTORY</span>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  style={s.sidebarClose}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* New Chat Button */}
+              <button
+                onClick={() => {
+                  handleNewChat();
+                  setSidebarOpen(false);
+                }}
+                style={s.sidebarNewBtn}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                NEW CHAT
+              </button>
+
+              <div style={s.sidebarDivider} />
+
+              {/* Chat List */}
+              <div style={s.sidebarList}>
+                {loadingChats ? (
+                  <div style={s.sidebarLoading}>
+                    {[0, 1, 2].map((i) => (
+                      <motion.div
+                        key={i}
+                        style={s.sidebarSkeleton}
+                        animate={{ opacity: [0.3, 0.7, 0.3] }}
+                        transition={{
+                          duration: 1.2,
+                          repeat: Infinity,
+                          delay: i * 0.2,
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : chats.length === 0 ? (
+                  <div style={s.sidebarEmpty}>No previous chats</div>
+                ) : (
+                  chats.map((chat) => (
+                    <motion.div
+                      key={chat.id}
+                      style={{
+                        ...s.sidebarItem,
+                        ...(chatId === chat.id ? s.sidebarItemActive : {}),
+                      }}
+                      onClick={() => loadChat(chat.id, chat.title)}
+                      whileHover={{ background: "#16161f" }}
+                    >
+                      <div style={s.sidebarItemInner}>
+                        <div style={s.sidebarItemIcon}>
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          >
+                            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                          </svg>
+                        </div>
+                        <div style={s.sidebarItemContent}>
+                          <span style={s.sidebarItemTitle}>{chat.title}</span>
+                          <span style={s.sidebarItemDate}>
+                            {formatDate(chat.created_at)}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => deleteChat(chat.id, e)}
+                          style={s.sidebarItemDelete}
+                          title="Delete"
+                        >
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                          >
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                            <path d="M9 6V4h6v2" />
+                          </svg>
+                        </button>
+                      </div>
+                      {chatId === chat.id && (
+                        <div style={s.sidebarItemActiveBar} />
+                      )}
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <div style={s.shell}>
         {/* ── Header ── */}
         <motion.header
@@ -177,23 +384,50 @@ const ChatPage = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
         >
-          <div style={s.brand}>
-            <div style={s.brandIcon}>
-              <motion.div
-                style={s.brandRing}
-                animate={{ rotate: 360 }}
-                transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-              />
-              <div style={s.brandCore} />
-            </div>
-            <div>
-              <div style={s.brandName}>ORACLE</div>
-              <div style={s.brandSub}>RAG Intelligence Engine</div>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            {/* Sidebar toggle */}
+            <motion.button
+              onClick={() => setSidebarOpen(true)}
+              style={s.sidebarToggle}
+              whileHover={{ borderColor: "#c9a84c99", color: "#c9a84c" }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </svg>
+            </motion.button>
+
+            <div style={s.brand}>
+              <div style={s.brandIcon}>
+                <motion.div
+                  style={s.brandRing}
+                  animate={{ rotate: 360 }}
+                  transition={{
+                    duration: 12,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }}
+                />
+                <div style={s.brandCore} />
+              </div>
+              <div>
+                <div style={s.brandName}>ORACLE</div>
+                <div style={s.brandSub}>RAG Intelligence Engine</div>
+              </div>
             </div>
           </div>
 
           <div style={s.headerRight}>
-            {/* ── Chat ID badge ── */}
             {chatId && (
               <motion.div
                 style={s.chatIdPill}
@@ -203,7 +437,6 @@ const ChatPage = () => {
                 <span style={s.chatIdText}>#{chatId.slice(0, 8)}</span>
               </motion.div>
             )}
-
             {file && (
               <motion.div
                 style={s.headerFilePill}
@@ -228,8 +461,6 @@ const ChatPage = () => {
                 </button>
               </motion.div>
             )}
-
-            {/* ── New Chat button ── */}
             <motion.button
               onClick={handleNewChat}
               style={s.newChatBtn}
@@ -251,7 +482,6 @@ const ChatPage = () => {
               </svg>
               NEW CHAT
             </motion.button>
-
             <div style={s.livePill}>
               <motion.span
                 style={s.liveDot}
@@ -262,6 +492,28 @@ const ChatPage = () => {
             </div>
           </div>
         </motion.header>
+
+        {/* ── Loading messages indicator ── */}
+        <AnimatePresence>
+          {loadingMessages && (
+            <motion.div
+              style={s.loadingBar}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <motion.div
+                style={s.loadingBarFill}
+                animate={{ x: ["-100%", "100%"] }}
+                transition={{
+                  duration: 1.2,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* ── Conversation Body ── */}
         <div style={s.body} ref={scrollRef}>
@@ -328,7 +580,6 @@ const ChatPage = () => {
             )}
           </AnimatePresence>
 
-          {/* ── History ── */}
           {history.map((item, i) => (
             <motion.div
               key={i}
@@ -356,7 +607,6 @@ const ChatPage = () => {
             </motion.div>
           ))}
 
-          {/* ── Streaming Turn ── */}
           <AnimatePresence>
             {isStreaming && (
               <motion.div
@@ -675,6 +925,172 @@ const s: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
   gridSvg: { position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" },
+
+  // ── Sidebar ──
+  sidebarOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "#00000066",
+    zIndex: 10,
+    backdropFilter: "blur(2px)",
+  },
+  sidebar: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: "300px",
+    zIndex: 11,
+    background: "#0a0a10",
+    borderRight: "1px solid #1e1e2a",
+    display: "flex",
+    flexDirection: "column",
+  },
+  sidebarHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "20px 18px 16px",
+    borderBottom: "1px solid #1a1a24",
+  },
+  sidebarTitle: {
+    fontSize: "10px",
+    letterSpacing: "0.25em",
+    color: "#c9a84c",
+    fontWeight: 600,
+  },
+  sidebarClose: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: "#4a4a58",
+    fontSize: "12px",
+    padding: "2px 6px",
+  },
+  sidebarNewBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    margin: "12px",
+    padding: "10px 14px",
+    borderRadius: "10px",
+    border: "1px dashed #2a2a38",
+    background: "transparent",
+    color: "#6b6b78",
+    fontSize: "10px",
+    letterSpacing: "0.15em",
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "'DM Mono',monospace",
+    transition: "all 0.2s",
+  },
+  sidebarDivider: { height: "1px", background: "#1a1a24", margin: "0 12px" },
+  sidebarList: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "8px 0",
+    scrollbarWidth: "thin",
+    scrollbarColor: "#222230 transparent",
+  },
+  sidebarLoading: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    padding: "12px",
+  },
+  sidebarSkeleton: {
+    height: "56px",
+    borderRadius: "10px",
+    background: "#141420",
+  },
+  sidebarEmpty: {
+    fontSize: "12px",
+    color: "#3a3a48",
+    textAlign: "center",
+    padding: "32px 16px",
+  },
+  sidebarItem: {
+    position: "relative",
+    cursor: "pointer",
+    borderRadius: "10px",
+    margin: "2px 8px",
+    padding: "10px 12px",
+    transition: "background 0.15s",
+  },
+  sidebarItemActive: { background: "#141420" },
+  sidebarItemActiveBar: {
+    position: "absolute",
+    left: 0,
+    top: "20%",
+    bottom: "20%",
+    width: "2px",
+    borderRadius: "0 2px 2px 0",
+    background: "#c9a84c",
+  },
+  sidebarItemInner: { display: "flex", alignItems: "center", gap: "10px" },
+  sidebarItemIcon: { color: "#3a3a50", flexShrink: 0 },
+  sidebarItemContent: {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "3px",
+  },
+  sidebarItemTitle: {
+    fontSize: "12px",
+    color: "#b0b0c0",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    fontFamily: "'DM Sans',sans-serif",
+  },
+  sidebarItemDate: {
+    fontSize: "10px",
+    color: "#3a3a50",
+    letterSpacing: "0.04em",
+  },
+  sidebarItemDelete: {
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    color: "#3a3a50",
+    padding: "4px",
+    borderRadius: "6px",
+    flexShrink: 0,
+    transition: "color 0.15s",
+  },
+
+  // ── Loading bar ──
+  loadingBar: {
+    height: "2px",
+    background: "#1a1a24",
+    overflow: "hidden",
+    flexShrink: 0,
+    position: "relative",
+  },
+  loadingBarFill: {
+    position: "absolute",
+    inset: 0,
+    background: "linear-gradient(90deg, transparent, #c9a84c, transparent)",
+    width: "40%",
+  },
+
+  // ── Sidebar toggle ──
+  sidebarToggle: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "36px",
+    height: "36px",
+    borderRadius: "10px",
+    border: "1px solid #222230",
+    background: "#111118",
+    color: "#6b6b78",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "all 0.2s",
+  },
+
   shell: {
     position: "relative",
     zIndex: 1,
@@ -734,8 +1150,6 @@ const s: Record<string, React.CSSProperties> = {
     fontWeight: 400,
   },
   headerRight: { display: "flex", alignItems: "center", gap: "10px" },
-
-  // ── New styles ──
   chatIdPill: {
     display: "flex",
     alignItems: "center",
@@ -761,7 +1175,6 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: "'DM Mono',monospace",
     transition: "all 0.2s",
   },
-
   headerFilePill: {
     display: "flex",
     alignItems: "center",
