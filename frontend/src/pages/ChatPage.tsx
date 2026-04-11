@@ -49,7 +49,6 @@ const ChatPage = () => {
     }
   }, [response, history, isStreaming]);
 
-  // Fetch all chats when sidebar opens
   useEffect(() => {
     if (sidebarOpen) fetchChats();
   }, [sidebarOpen]);
@@ -68,8 +67,7 @@ const ChatPage = () => {
     }
   };
 
-  // Load a previous chat's messages
-  const loadChat = async (selectedChatId: string, title: string) => {
+  const loadChat = async (selectedChatId: string) => {
     if (isStreaming) stopStreaming();
     setLoadingMessages(true);
     try {
@@ -77,10 +75,12 @@ const ChatPage = () => {
         `http://localhost:3009/history/messages/${selectedChatId}`,
       );
       const messages = res.data.messages ?? [];
-      const loaded: HistoryItem[] = messages.map((m: any) => ({
-        q: m.query,
-        a: m.answer,
-      }));
+      const loaded: HistoryItem[] = messages.map(
+        (m: { query: string; answer: string }) => ({
+          q: m.query,
+          a: m.answer,
+        }),
+      );
       setHistory(loaded);
       setChatId(selectedChatId);
       setFile(null);
@@ -171,32 +171,34 @@ const ChatPage = () => {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
- const handleSend = async () => {
-   if (!message.trim() || isStreaming) return;
-   const q = message.trim();
-   const fd = new FormData();
-   if (file) fd.append("File", file);
-   fd.append("query", q);
-   fd.append("userId", USER_ID);
-   if (chatId) fd.append("chatId", chatId);
-   setMessage("");
-   setCharCount(0);
-   setIsStreaming(true);
-   try {
-     const res = await axios.post("http://localhost:3009/query", fd);
-     const text = res.data?.text ?? JSON.stringify(res.data);
-     if (res.data?.chatId && !chatId) {
-       setChatId(res.data.chatId);
-       if (sidebarOpen) fetchChats();
-     }
-     typewriterStream(text, q);
-   } catch (err: any) {
-     const errorMsg =
-       err.response?.data?.error ?? "Something went wrong. Please try again.";
-     setIsStreaming(false);
-     typewriterStream(errorMsg, q);
-   }
- };
+  const handleSend = async () => {
+    if (!message.trim() || isStreaming) return;
+    const q = message.trim();
+    const fd = new FormData();
+    if (file) fd.append("File", file);
+    fd.append("query", q);
+    fd.append("userId", USER_ID);
+    if (chatId) fd.append("chatId", chatId);
+    setMessage("");
+    setCharCount(0);
+    setIsStreaming(true);
+    try {
+      const res = await axios.post("http://localhost:3009/query", fd);
+      const text = res.data?.text ?? JSON.stringify(res.data);
+      if (res.data?.chatId && !chatId) {
+        setChatId(res.data.chatId);
+        if (sidebarOpen) fetchChats();
+      }
+      typewriterStream(text, q);
+    } catch (err: unknown) {
+      const errorMsg = axios.isAxiosError(err)
+        ? (err.response?.data?.error ??
+          "Something went wrong. Please try again.")
+        : "Something went wrong. Please try again.";
+      setIsStreaming(false);
+      typewriterStream(errorMsg, q);
+    }
+  };
 
   const isEmpty = history.length === 0 && !isStreaming && !response;
 
@@ -322,7 +324,7 @@ const ChatPage = () => {
                         ...s.sidebarItem,
                         ...(chatId === chat.id ? s.sidebarItemActive : {}),
                       }}
-                      onClick={() => loadChat(chat.id, chat.title)}
+                      onClick={() => loadChat(chat.id)}
                       whileHover={{ background: "#16161f" }}
                     >
                       <div style={s.sidebarItemInner}>
@@ -387,7 +389,6 @@ const ChatPage = () => {
           transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            {/* Sidebar toggle */}
             <motion.button
               onClick={() => setSidebarOpen(true)}
               style={s.sidebarToggle}
@@ -656,15 +657,15 @@ const ChatPage = () => {
                     </div>
                     {response === "" ? (
                       <div style={s.thinkRow}>
-                        {[0, 1, 2].map((i) => (
+                        {[0, 1, 2].map((j) => (
                           <motion.span
-                            key={i}
+                            key={j}
                             style={s.thinkDot}
                             animate={{ y: [0, -7, 0], opacity: [0.3, 1, 0.3] }}
                             transition={{
                               duration: 0.85,
                               repeat: Infinity,
-                              delay: i * 0.16,
+                              delay: j * 0.16,
                               ease: "easeInOut",
                             }}
                           />
@@ -927,8 +928,6 @@ const s: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
   gridSvg: { position: "absolute", inset: 0, zIndex: 0, pointerEvents: "none" },
-
-  // ── Sidebar ──
   sidebarOverlay: {
     position: "fixed",
     inset: 0,
@@ -1061,8 +1060,6 @@ const s: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     transition: "color 0.15s",
   },
-
-  // ── Loading bar ──
   loadingBar: {
     height: "2px",
     background: "#1a1a24",
@@ -1076,8 +1073,6 @@ const s: Record<string, React.CSSProperties> = {
     background: "linear-gradient(90deg, transparent, #c9a84c, transparent)",
     width: "40%",
   },
-
-  // ── Sidebar toggle ──
   sidebarToggle: {
     display: "flex",
     alignItems: "center",
@@ -1092,7 +1087,6 @@ const s: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     transition: "all 0.2s",
   },
-
   shell: {
     position: "relative",
     zIndex: 1,
