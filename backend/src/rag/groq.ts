@@ -8,45 +8,51 @@ export const askGroq = async (
   relevantChunks: string[],
   conversationHistory: { role: "user" | "assistant"; content: string }[] = [],
 ): Promise<string> => {
-  const hasPDF = relevantChunks.length > 0;
-  const hasHistory = conversationHistory.length > 0;
+  const hasChunks = relevantChunks.length > 0;
 
-  const context = hasPDF
+  const context = hasChunks
     ? relevantChunks.map((chunk, i) => `Chunk ${i + 1}:\n${chunk}`).join("\n\n")
-    : null;
+    : "";
 
   const response = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     messages: [
       {
         role: "system",
-        content: `You are a helpful conversational assistant called Oracle.
+        content: `
+You are a strict RAG assistant.
 
-${
-  hasPDF
-    ? `You have access to relevant document context to help answer questions.
-Use the document context when the question is about the document.
-If the question is conversational or a follow-up (like "explain more", "i don't understand", "what do you mean", "tell me more"), 
-answer naturally based on the conversation history — do NOT say you cannot find it in the document.`
-    : `Answer the user's question using your general knowledge and the conversation history.`
-}
-
-Always be helpful, friendly, and conversational.
-If the user seems confused, explain your previous answer more simply.
-Never ask the user to rephrase unless absolutely necessary.`,
+RULES:
+1. You MUST answer ONLY using the provided document context.
+2. DO NOT use any external knowledge.
+3. If the answer is not clearly present in the context, respond EXACTLY with:
+   "I don’t know anything about this."
+4. Do NOT guess, infer, or assume anything outside the context.
+5. Keep answers concise and accurate.
+`,
       },
-      // Full conversation history for memory
+
+      // optional history (keep if you want follow-ups but still grounded)
       ...conversationHistory,
+
       {
         role: "user",
-        content: hasPDF
-          ? `Document context:\n${context}\n\nQuestion: ${question}`
-          : question,
+        content: `
+Document Context:
+${context}
+
+Question:
+${question}
+`,
       },
     ],
   });
 
-  const answer = response.choices[0]?.message.content ?? "No answer generated";
-  console.log("✅ Groq answered", response.choices[0]?.message);
+  const answer =
+    response.choices[0]?.message.content?.trim() ||
+    "I don’t know anything about this.";
+
+  console.log("✅ Groq answered:", answer);
+
   return answer;
 };
