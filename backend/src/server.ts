@@ -7,9 +7,15 @@ import multer from "multer";
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: "https://advanced-rag-pipeline.vercel.app",
+    methods: ["GET", "POST"],
+    credentials: true,
+  }),
+);
 
-const PORT = 3009;
+const PORT = process.env.PORT || 3009;
 const data = multer().single("File");
 
 const router1 = Router();

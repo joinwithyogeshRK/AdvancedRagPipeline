@@ -6,8 +6,12 @@ import historyRouter from "./routes/history.js";
 import multer from "multer";
 const app = express();
 app.use(express.json());
-app.use(cors());
-const PORT = 3009;
+app.use(cors({
+    origin: "https://advanced-rag-pipeline.vercel.app",
+    methods: ["GET", "POST"],
+    credentials: true,
+}));
+const PORT = process.env.PORT || 3009;
 const data = multer().single("File");
 const router1 = Router();
 app.use(router1);
