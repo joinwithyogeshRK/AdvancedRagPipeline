@@ -171,30 +171,32 @@ const ChatPage = () => {
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
-  const handleSend = async () => {
-    if (!message.trim() || isStreaming) return;
-    const q = message.trim();
-    const fd = new FormData();
-    if (file) fd.append("File", file);
-    fd.append("query", q);
-    fd.append("userId", USER_ID);
-    if (chatId) fd.append("chatId", chatId);
-    setMessage("");
-    setCharCount(0);
-    setIsStreaming(true);
-    try {
-      const res = await axios.post("http://localhost:3009/query", fd);
-      const text = res.data?.text ?? JSON.stringify(res.data);
-      if (res.data?.chatId && !chatId) {
-        setChatId(res.data.chatId);
-        // refresh sidebar list if open
-        if (sidebarOpen) fetchChats();
-      }
-      typewriterStream(text, q);
-    } catch {
-      typewriterStream("Something went wrong. Please try again.", q);
-    }
-  };
+ const handleSend = async () => {
+   if (!message.trim() || isStreaming) return;
+   const q = message.trim();
+   const fd = new FormData();
+   if (file) fd.append("File", file);
+   fd.append("query", q);
+   fd.append("userId", USER_ID);
+   if (chatId) fd.append("chatId", chatId);
+   setMessage("");
+   setCharCount(0);
+   setIsStreaming(true);
+   try {
+     const res = await axios.post("http://localhost:3009/query", fd);
+     const text = res.data?.text ?? JSON.stringify(res.data);
+     if (res.data?.chatId && !chatId) {
+       setChatId(res.data.chatId);
+       if (sidebarOpen) fetchChats();
+     }
+     typewriterStream(text, q);
+   } catch (err: any) {
+     const errorMsg =
+       err.response?.data?.error ?? "Something went wrong. Please try again.";
+     setIsStreaming(false);
+     typewriterStream(errorMsg, q);
+   }
+ };
 
   const isEmpty = history.length === 0 && !isStreaming && !response;
 
