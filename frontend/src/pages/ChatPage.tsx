@@ -57,7 +57,7 @@ const ChatPage = () => {
     setLoadingChats(true);
     try {
       const res = await axios.get(
-        `https://advancedragpipeline.onrender.com/history/chats/${USER_ID}`,
+        `http://localhost:3009/history/chats/${USER_ID}`,
       );
       setChats(res.data.chats ?? []);
     } catch {
@@ -72,7 +72,7 @@ const ChatPage = () => {
     setLoadingMessages(true);
     try {
       const res = await axios.get(
-        `https://advancedragpipeline.onrender.com/history/messages/${selectedChatId}`,
+        `http://localhost:3009/history/messages/${selectedChatId}`,
       );
       const messages = res.data.messages ?? [];
       const loaded: HistoryItem[] = messages.map(
@@ -98,7 +98,7 @@ const ChatPage = () => {
   const deleteChat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await axios.delete(`https://advancedragpipeline.onrender.com/history/chats/${id}`);
+      await axios.delete(`http://localhost:3009/history/chats/${id}`);
       setChats((prev) => prev.filter((c) => c.id !== id));
       if (chatId === id) handleNewChat();
     } catch {}
@@ -186,7 +186,7 @@ const ChatPage = () => {
     setIsStreaming(true);
     try {
       const res = await axios.post(
-        "https://advancedragpipeline.onrender.com/query",
+        "http://localhost:3009/query",
         fd,
       );
       const text = res.data?.text ?? JSON.stringify(res.data);

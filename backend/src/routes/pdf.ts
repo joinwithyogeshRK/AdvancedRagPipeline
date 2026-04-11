@@ -56,11 +56,7 @@ const pdf = async (req: Request, res: Response) => {
     console.log("✅ Step 5 — Query embedded");
 
     // Step 6 — Search Pinecone
-    const relevantChunks = await searchPinecone(
-      queryVector,
-      5,
-      file ? 0.15 : 0.4,
-    );
+    const relevantChunks = await searchPinecone(queryVector);
     console.log(`✅ Step 6 — ${relevantChunks.length} relevant chunks found`);
 
     if (relevantChunks.length === 0) {
@@ -101,7 +97,7 @@ const pdf = async (req: Request, res: Response) => {
       await saveMessage(chatId, userId, query, answer, !!(file && file.buffer));
       console.log("✅ Step 11 — Message saved to Supabase");
     }
-
+    console.log(answer);
     res.json({ text: answer, chatId: chatId ?? null });
   } catch (error: any) {
     console.error("Unhandled error:", error);

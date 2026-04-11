@@ -2,8 +2,8 @@ import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 const chunkText = async (document: string) => {
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 512, // optimal for Voyage free tier (1024 token limit per chunk)
-    chunkOverlap: 100, // 20% overlap — preserves context across chunk boundaries
+    chunkSize: 100, // optimal for Voyage free tier (1024 token limit per chunk)
+    chunkOverlap: 20, // 20% overlap — preserves context across chunk boundaries
     separators: ["\n\n", "\n", ".", "!", "?", ",", " ", ""], // tries to split naturally
   });
 

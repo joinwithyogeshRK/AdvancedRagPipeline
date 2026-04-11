@@ -23,7 +23,6 @@ export const storeInPinecone = async (
 export const searchPinecone = async (
   queryVector: number[],
   topK: number = 5,
-  minScore: number = 0.15,
 ): Promise<string[]> => {
   const results = await index.query({
     vector: queryVector,
@@ -37,12 +36,12 @@ export const searchPinecone = async (
     );
   });
 
-  const relevant =
-    results.matches?.filter((m) => m.score && m.score > minScore) ?? [];
+  // Return all matches regardless of score — Groq gets all 5 chunks always
+  const chunks =
+    results.matches?.map((m) => m.metadata?.text as string).filter(Boolean) ??
+    [];
 
-  console.log(
-    `✅ Found ${relevant.length} relevant chunks (filtered from ${results.matches?.length ?? 0})`,
-  );
+  console.log(`✅ Found ${chunks.length} chunks`);
 
-  return relevant.map((m) => m.metadata?.text as string).filter(Boolean);
+  return chunks;
 };
