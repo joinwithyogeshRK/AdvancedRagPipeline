@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import PDFParser from "pdf2json";
+import { extractTextFromPDF } from "../services/ocrService.js";
 import { chunkText } from "../rag/chunker.js";
 import { embedChunks, embedQuery } from "../rag/embedder.js";
 import { storeInPinecone, searchPinecone } from "../rag/pinecone.js";
@@ -18,43 +18,49 @@ const pdf = async (req: Request, res: Response) => {
     const userId = req.body.userId;
     let chatId = req.body.chatId;
 
-    if (!query) {
+    // ── Validate query ──
+    if (!query || !query.trim()) {
       return res.status(400).json({ error: "No query provided." });
     }
 
-    // If a PDF is uploaded — run full RAG pipeline
+    // ── Process PDF if uploaded ──
     if (file && file.buffer) {
-      const pdfParser = new PDFParser();
-      const text = await new Promise<string>((resolve, reject) => {
-        pdfParser.on("pdfParser_dataReady", (data) => {
-          const rawText = data.Pages.map((page: any) =>
-            page.Texts.map((t: any) =>
-              decodeURIComponent(t.R.map((r: any) => r.T).join("")),
-            ).join(" "),
-          ).join("\n");
-          resolve(rawText);
-        });
-        pdfParser.on("pdfParser_dataError", reject);
-        pdfParser.parseBuffer(file.buffer);
-      });
-      console.log("✅ Step 1 — PDF parsed");
+      let text: string;
 
+      try {
+        const result = await extractTextFromPDF(file.buffer, file.originalname);
+        text = result.text;
+        console.log(
+          `✅ Step 1 — Text extracted via ${result.method} (${text.length} chars)`,
+        );
+      } catch (extractionError: any) {
+        // Send the user-friendly error message directly to the frontend
+        return res.status(422).json({ error: extractionError.message });
+      }
+
+      // Step 2 — Chunk
       const chunks = await chunkText(text);
       console.log(`✅ Step 2 — ${chunks.length} chunks created`);
 
+      // Step 3 — Embed chunks
       const embeddedChunks = await embedChunks(chunks);
       console.log("✅ Step 3 — Chunks embedded");
 
+      // Step 4 — Store in Pinecone
       await storeInPinecone(embeddedChunks);
       console.log("✅ Step 4 — Stored in Pinecone");
     }
 
-    // Always embed query and search Pinecone
+    // Step 5 — Embed query
     const queryVector = await embedQuery(query);
-
     console.log("✅ Step 5 — Query embedded");
 
-  const relevantChunks = await searchPinecone(queryVector);
+    // Step 6 — Search Pinecone
+    const relevantChunks = await searchPinecone(
+      queryVector,
+      5,
+      file ? 0.15 : 0.4,
+    );
     console.log(`✅ Step 6 — ${relevantChunks.length} relevant chunks found`);
 
     if (relevantChunks.length === 0) {
@@ -63,7 +69,7 @@ const pdf = async (req: Request, res: Response) => {
       );
     }
 
-    // Fetch conversation history from Supabase if chatId exists
+    // Step 7 — Load conversation history
     let conversationHistory: { role: "user" | "assistant"; content: string }[] =
       [];
     if (chatId) {
@@ -77,9 +83,11 @@ const pdf = async (req: Request, res: Response) => {
       );
     }
 
+    // Step 8 — Ask Groq
     const answer = await askGroq(query, relevantChunks, conversationHistory);
     console.log("✅ Step 8 — Answer generated");
 
+    // Step 9 — Save to Supabase
     if (userId) {
       await upsertUser(userId);
       console.log("✅ Step 9 — User upserted");
@@ -95,9 +103,9 @@ const pdf = async (req: Request, res: Response) => {
     }
 
     res.json({ text: answer, chatId: chatId ?? null });
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).json({ error: "Failed to process request" });
+  } catch (error: any) {
+    console.error("Unhandled error:", error);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 };
 

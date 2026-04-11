@@ -23,6 +23,7 @@ export const storeInPinecone = async (
 export const searchPinecone = async (
   queryVector: number[],
   topK: number = 5,
+  minScore: number = 0.15,
 ): Promise<string[]> => {
   const results = await index.query({
     vector: queryVector,
@@ -30,8 +31,14 @@ export const searchPinecone = async (
     includeMetadata: true,
   });
 
+  results.matches?.forEach((m) => {
+    console.log(
+      `  Score: ${m.score?.toFixed(4)} — "${(m.metadata?.text as string)?.slice(0, 60)}..."`,
+    );
+  });
+
   const relevant =
-    results.matches?.filter((m) => m.score && m.score > 0.75) ?? [];
+    results.matches?.filter((m) => m.score && m.score > minScore) ?? [];
 
   console.log(
     `✅ Found ${relevant.length} relevant chunks (filtered from ${results.matches?.length ?? 0})`,
