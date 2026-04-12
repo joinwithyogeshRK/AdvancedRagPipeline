@@ -9,37 +9,39 @@ export const askGroq = async (
   conversationHistory: { role: "user" | "assistant"; content: string }[] = [],
 ): Promise<string> => {
   const hasChunks = relevantChunks.length > 0;
-  const hasHistory = conversationHistory.length > 0;
 
-  const context = hasChunks
-    ? relevantChunks.map((chunk, i) => `Chunk ${i + 1}:\n${chunk}`).join("\n\n")
+  const referenceBlock = hasChunks
+    ? relevantChunks.join("\n\n---\n\n")
     : null;
 
   console.log(`📦 Chunks received: ${relevantChunks.length}`);
   console.log(`💬 History messages: ${conversationHistory.length}`);
-  if (context) console.log(`📄 Context preview: ${context.slice(0, 200)}...`);
+  if (referenceBlock)
+    console.log(`📄 Reference preview: ${referenceBlock.slice(0, 200)}...`);
+
+  const baseVoice = `You are Oracle, a warm, knowledgeable assistant. Be concise, clear, and friendly.`;
 
   const systemPrompt = hasChunks
-    ? `You are a helpful assistant called Oracle.
-You have been given document context to answer the user's question.
-Use the document context as your primary source of truth.
-If the user asks a follow-up or conversational question (like "explain more", "what do you mean", "i don't understand"), 
-use the conversation history to give a natural helpful response.
-If the answer is genuinely not in the context or history, then "you can explain by your own knowledge"
-Be concise, clear, and friendly.`
-    : `You are a helpful assistant called Oracle.
-Answer the user's question using the conversation history and your general knowledge.
-Be concise, clear, and friendly.`;
+    ? `${baseVoice}
 
-  const userMessage = hasChunks
-    ? `Document Context:\n${context}\n\nQuestion: ${question}`
-    : question;
+You may use the reference material below to answer. Treat it as information you simply know—never explain *how* you know it.
+
+Strict rules:
+- Do not mention chunks, passages, excerpts, embeddings, retrieval, RAG, indexes, or "the document" / "the context" / "provided material" / "according to Chunk" / numbering like "Chunk 1".
+- Do not cite or label internal sources. Speak naturally, e.g. "From what I understand…", "Here's what I can share…", or address the person pleasantly by name when appropriate.
+- For follow-ups ("explain more", "what do you mean"), use conversation history and stay in the same natural voice.
+- If the answer is not in the reference or history, say so gently or use careful general knowledge without inventing private details.
+
+Reference material:
+${referenceBlock}`
+    : `${baseVoice}
+Answer using conversation history and your general knowledge when needed.`;
 
   const messages: { role: "system" | "user" | "assistant"; content: string }[] =
     [
       { role: "system", content: systemPrompt },
       ...conversationHistory,
-      { role: "user", content: userMessage },
+      { role: "user", content: question },
     ];
 
   console.log(`📨 Sending ${messages.length} messages to Groq`);
@@ -47,7 +49,7 @@ Be concise, clear, and friendly.`;
   const response = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     max_tokens: 1024,
-    temperature: 0.3, // lower = more factual, less hallucination
+    temperature: 0.35, // factual but slightly warmer phrasing
     messages,
   });
 
