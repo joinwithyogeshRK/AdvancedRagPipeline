@@ -5,17 +5,16 @@ import { embedChunks, embedQuery } from "../rag/embedder.js";
 import { storeInPinecone, searchPinecone } from "../rag/pinecone.js";
 import { askGroq } from "../rag/groq.js";
 import {
-  upsertUser,
   createChat,
   saveMessage,
-  getChatMessages,
+  getChatMessagesForUser,
 } from "../services/historyService.js";
 
 const pdf = async (req: Request, res: Response) => {
   try {
     const file = req.file;
     const query = req.body.query;
-    const userId = req.body.userId;
+    const userId = req.supabaseUserId!;
     let chatId = req.body.chatId;
 
     // ── Validate query ──
@@ -69,8 +68,11 @@ const pdf = async (req: Request, res: Response) => {
     let conversationHistory: { role: "user" | "assistant"; content: string }[] =
       [];
     if (chatId) {
-      const previousMessages = await getChatMessages(chatId);
-      conversationHistory = previousMessages.flatMap((m: any) => [
+      const previousMessages = await getChatMessagesForUser(chatId, userId);
+      if (!previousMessages) {
+        return res.status(403).json({ error: "This chat does not belong to your account." });
+      }
+      conversationHistory = previousMessages.flatMap((m: { query: string; answer: string }) => [
         { role: "user" as const, content: m.query },
         { role: "assistant" as const, content: m.answer },
       ]);
@@ -83,20 +85,15 @@ const pdf = async (req: Request, res: Response) => {
     const answer = await askGroq(query, relevantChunks, conversationHistory);
     console.log("✅ Step 8 — Answer generated");
 
-    // Step 9 — Save to Supabase
-    if (userId) {
-      await upsertUser(userId);
-      console.log("✅ Step 9 — User upserted");
-
-      if (!chatId) {
-        const newChat = await createChat(userId, query);
-        chatId = newChat.id;
-        console.log("✅ Step 10 — New chat created:", chatId);
-      }
-
-      await saveMessage(chatId, userId, query, answer, !!(file && file.buffer));
-      console.log("✅ Step 11 — Message saved to Supabase");
+    // Step 9 — Save to Supabase (user resolved via Clerk middleware)
+    if (!chatId) {
+      const newChat = await createChat(userId, query);
+      chatId = newChat.id;
+      console.log("✅ Step 9 — New chat created:", chatId);
     }
+
+    await saveMessage(chatId, userId, query, answer, !!(file && file.buffer));
+    console.log("✅ Step 10 — Message saved to Supabase");
     console.log(answer);
     res.json({ text: answer, chatId: chatId ?? null });
   } catch (error: any) {

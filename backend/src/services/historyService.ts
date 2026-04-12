@@ -1,13 +1,5 @@
 import { supabase } from "../lib/supabase.js";
 
-export const upsertUser = async (userId: string) => {
-  const { error } = await supabase
-    .from("users")
-    .upsert({ id: userId }, { onConflict: "id" });
-
-  if (error) throw error;
-};
-
 export const createChat = async (userId: string, firstQuestion: string) => {
   const { data, error } = await supabase
     .from("chats")
@@ -62,8 +54,30 @@ export const getChatMessages = async (chatId: string) => {
   return data;
 };
 
-export const deleteChat = async (chatId: string) => {
-  const { error } = await supabase.from("chats").delete().eq("id", chatId);
+/** Loads messages only if the chat belongs to this Supabase user. */
+export const getChatMessagesForUser = async (
+  chatId: string,
+  userId: string,
+) => {
+  const { data: chat, error: chatErr } = await supabase
+    .from("chats")
+    .select("id")
+    .eq("id", chatId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (chatErr) throw chatErr;
+  if (!chat) return null;
+
+  return getChatMessages(chatId);
+};
+
+export const deleteChat = async (chatId: string, userId: string) => {
+  const { error } = await supabase
+    .from("chats")
+    .delete()
+    .eq("id", chatId)
+    .eq("user_id", userId);
 
   if (error) throw error;
 };

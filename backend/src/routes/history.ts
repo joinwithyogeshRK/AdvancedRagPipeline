@@ -1,35 +1,44 @@
 import { Router } from "express";
+import { requireClerkSession } from "../middleware/requireClerk.js";
 import {
   getUserChats,
-  getChatMessages,
+  getChatMessagesForUser,
   deleteChat,
 } from "../services/historyService.js";
 
 const router = Router();
 
-router.get("/chats/:userId", async (req, res) => {
+router.use(requireClerkSession);
+
+router.get("/chats", async (req, res) => {
   try {
-    const chats = await getUserChats(req.params.userId);
+    const chats = await getUserChats(req.supabaseUserId!);
     res.json({ chats });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: "Failed to fetch chats" });
   }
 });
 
 router.get("/messages/:chatId", async (req, res) => {
   try {
-    const messages = await getChatMessages(req.params.chatId);
+    const messages = await getChatMessagesForUser(
+      req.params.chatId,
+      req.supabaseUserId!,
+    );
+    if (!messages) {
+      return res.status(404).json({ error: "Chat not found" });
+    }
     res.json({ messages });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: "Failed to fetch messages" });
   }
 });
 
 router.delete("/chats/:chatId", async (req, res) => {
   try {
-    await deleteChat(req.params.chatId);
+    await deleteChat(req.params.chatId, req.supabaseUserId!);
     res.json({ message: "Chat deleted" });
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: "Failed to delete chat" });
   }
 });

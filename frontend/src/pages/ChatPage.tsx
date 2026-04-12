@@ -8,21 +8,20 @@ import { Sidebar } from "../components/Sidebar";
 import { MessageList } from "../components/MessageList";
 import { InputBar } from "../components/InputBar";
 
-const API = "https://advancedragpipeline.onrender.com";
-
-const getOrCreateUserId = () => {
-  let id = localStorage.getItem("oracle_user_id");
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem("oracle_user_id", id); }
-  return id;
-};
-const USER_ID = getOrCreateUserId();
+const API =
+  import.meta.env.VITE_API_URL ?? "http://localhost:3009";
 
 interface HistoryItem { q: string; a: string }
 interface Chat { id: string; title: string; created_at: string }
 
 const ChatPage = () => {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, getToken } = useAuth();
   const signedIn = Boolean(isSignedIn);
+
+  const authHeaders = async () => {
+    const token = await getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   // ── State ──
   const [message, setMessage] = useState("");
@@ -51,24 +50,34 @@ const ChatPage = () => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [response, history, isStreaming]);
 
-  // ── Fetch chats when sidebar opens ──
-  useEffect(() => { if (sidebarOpen) fetchChats(); }, [sidebarOpen]);
+  // ── Fetch chats when sidebar opens (signed-in only) ──
+  useEffect(() => {
+    if (sidebarOpen && signedIn) void fetchChats();
+  }, [sidebarOpen, signedIn]);
 
   // ── API calls ──
   const fetchChats = async () => {
+    if (!signedIn) return;
     setLoadingChats(true);
     try {
-      const res = await axios.get(`${API}/history/chats/${USER_ID}`);
+      const res = await axios.get(`${API}/history/chats`, {
+        headers: await authHeaders(),
+      });
       setChats(res.data.chats ?? []);
-    } catch { setChats([]); }
-    finally { setLoadingChats(false); }
+    } catch {
+      setChats([]);
+    } finally {
+      setLoadingChats(false);
+    }
   };
 
   const loadChat = async (selectedChatId: string) => {
     if (isStreaming) stopStreaming();
     setLoadingMessages(true);
     try {
-      const res = await axios.get(`${API}/history/messages/${selectedChatId}`);
+      const res = await axios.get(`${API}/history/messages/${selectedChatId}`, {
+        headers: await authHeaders(),
+      });
       setHistory((res.data.messages ?? []).map((m: { query: string; answer: string }) => ({ q: m.query, a: m.answer })));
       setChatId(selectedChatId);
       setFile(null); setFileName(""); setMessage(""); setCharCount(0);
@@ -80,7 +89,9 @@ const ChatPage = () => {
   const deleteChat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await axios.delete(`${API}/history/chats/${id}`);
+      await axios.delete(`${API}/history/chats/${id}`, {
+        headers: await authHeaders(),
+      });
       setChats((prev) => prev.filter((c) => c.id !== id));
       if (chatId === id) handleNewChat();
     } catch {}
@@ -135,12 +146,13 @@ const ChatPage = () => {
     const fd = new FormData();
     if (file) fd.append("File", file);
     fd.append("query", q);
-    fd.append("userId", USER_ID);
     if (chatId) fd.append("chatId", chatId);
     setMessage(""); setCharCount(0); setFile(null); setFileName("");
     setIsStreaming(true);
     try {
-      const res = await axios.post(`${API}/query`, fd);
+      const res = await axios.post(`${API}/query`, fd, {
+        headers: await authHeaders(),
+      });
       const text = res.data?.text ?? JSON.stringify(res.data);
       if (res.data?.chatId && !chatId) { setChatId(res.data.chatId); if (sidebarOpen) fetchChats(); }
       typewriterStream(text, q);
