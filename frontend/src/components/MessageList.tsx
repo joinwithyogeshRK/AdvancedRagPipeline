@@ -7,7 +7,7 @@ interface Props {
   isStreaming: boolean;
   response: string;
   currentQ: string;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
 }
 
 export const MessageList = ({ history, isStreaming, response, currentQ, scrollRef }: Props) => {

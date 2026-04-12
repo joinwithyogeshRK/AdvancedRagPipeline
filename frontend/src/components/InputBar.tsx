@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
+import { useClerk } from "@clerk/react";
 
 interface Props {
   message: string;
@@ -8,7 +9,8 @@ interface Props {
   chatId: string | null;
   isStreaming: boolean;
   focused: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
+  signedIn: boolean;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   onChange: (val: string) => void;
   onFocus: () => void;
   onBlur: () => void;
@@ -21,9 +23,18 @@ interface Props {
 
 export const InputBar = ({
   message, file, fileName, charCount, chatId, isStreaming,
-  focused, inputRef, onChange, onFocus, onBlur, onSend, onStop,
+  focused, signedIn, inputRef, onChange, onFocus, onBlur, onSend, onStop,
   onFileChange, onRemoveFile, historyLength,
-}: Props) => (
+}: Props) => {
+  const { openSignIn } = useClerk();
+  const canChat = signedIn && !isStreaming;
+  const sendEnabled = signedIn && message.trim().length > 0 && !isStreaming;
+
+  const promptSignIn = () => {
+    void openSignIn();
+  };
+
+  return (
   <motion.div style={s.inputSection} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}>
 
     {/* Stats */}
@@ -39,18 +50,35 @@ export const InputBar = ({
 
     {/* Input wrap */}
     <motion.div
-      style={{ ...s.inputWrap, boxShadow: focused ? "0 0 0 1.5px #c9a84c66, 0 8px 48px #c9a84c14, inset 0 1px 0 #c9a84c11" : "0 0 0 1px #222230, 0 4px 24px #00000070, inset 0 1px 0 #ffffff06" }}
+      style={{
+        ...s.inputWrap,
+        position: "relative",
+        opacity: signedIn ? 1 : 0.72,
+        boxShadow: focused && signedIn ? "0 0 0 1.5px #c9a84c66, 0 8px 48px #c9a84c14, inset 0 1px 0 #c9a84c11" : "0 0 0 1px #222230, 0 4px 24px #00000070, inset 0 1px 0 #ffffff06",
+      }}
       transition={{ duration: 0.2 }}
     >
       {/* File attach / chip */}
       <AnimatePresence mode="wait">
         {!file ? (
-          <motion.label key="attach" style={s.attachBtn} whileHover={{ borderColor: "#c9a84c99", color: "#c9a84c", background: "#c9a84c0a" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.label
+            key="attach"
+            style={{
+              ...s.attachBtn,
+              pointerEvents: signedIn ? "auto" : "none",
+              opacity: signedIn ? 1 : 0.45,
+              cursor: signedIn ? "pointer" : "not-allowed",
+            }}
+            whileHover={signedIn ? { borderColor: "#c9a84c99", color: "#c9a84c", background: "#c9a84c0a" } : {}}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
             </svg>
             PDF
-            <input type="file" accept="application/pdf" style={{ display: "none" }} onChange={onFileChange} />
+            {signedIn && <input type="file" accept="application/pdf" style={{ display: "none" }} onChange={onFileChange} />}
           </motion.label>
         ) : (
           <motion.div key="chip" style={s.fileChip} initial={{ opacity: 0, scale: 0.88 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
@@ -59,7 +87,7 @@ export const InputBar = ({
               <polyline points="14 2 14 8 20 8" />
             </svg>
             <span style={s.chipName}>{fileName}</span>
-            <button onClick={onRemoveFile} style={s.chipX}>✕</button>
+            <button type="button" onClick={signedIn ? onRemoveFile : undefined} disabled={!signedIn} style={{ ...s.chipX, opacity: signedIn ? 1 : 0.35, cursor: signedIn ? "pointer" : "not-allowed" }}>✕</button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -68,24 +96,36 @@ export const InputBar = ({
 
       <input
         ref={inputRef}
-        style={s.input}
+        style={{ ...s.input, cursor: signedIn ? "text" : "not-allowed" }}
         type="text"
-        placeholder="Ask anything… (attach a PDF for document Q&A)"
+        placeholder={signedIn ? "Ask anything… (attach a PDF for document Q&A)" : "Sign in to ask questions…"}
         value={message}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={onFocus}
+        disabled={!signedIn}
+        onChange={(e) => signedIn && onChange(e.target.value)}
+        onFocus={() => signedIn && onFocus()}
         onBlur={onBlur}
-        onKeyDown={(e) => e.key === "Enter" && !isStreaming && onSend()}
+        onKeyDown={(e) => e.key === "Enter" && canChat && onSend()}
       />
 
       {/* Send / Stop */}
       <AnimatePresence mode="wait">
         {isStreaming ? (
-          <motion.button key="stop" onClick={onStop} style={s.stopBtn} whileHover={{ scale: 1.08, background: "#c9a84c22" }} whileTap={{ scale: 0.92 }} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+          <motion.button key="stop" type="button" onClick={onStop} style={s.stopBtn} whileHover={{ scale: 1.08, background: "#c9a84c22" }} whileTap={{ scale: 0.92 }} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
             <span style={s.stopSq} />
           </motion.button>
         ) : (
-          <motion.button key="send" onClick={onSend} disabled={!message.trim()} style={{ ...s.sendBtn, ...(!message.trim() ? s.sendOff : {}) }} whileHover={message.trim() ? { scale: 1.07 } : {}} whileTap={message.trim() ? { scale: 0.91 } : {}} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+          <motion.button
+            key="send"
+            type="button"
+            onClick={onSend}
+            disabled={!sendEnabled}
+            style={{ ...s.sendBtn, ...(!sendEnabled ? s.sendOff : {}) }}
+            whileHover={sendEnabled ? { scale: 1.07 } : {}}
+            whileTap={sendEnabled ? { scale: 0.91 } : {}}
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+          >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13" />
               <polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -93,6 +133,15 @@ export const InputBar = ({
           </motion.button>
         )}
       </AnimatePresence>
+
+      {!signedIn && (
+        <button
+          type="button"
+          aria-label="Sign in to use chat"
+          onClick={promptSignIn}
+          style={s.signInGate}
+        />
+      )}
     </motion.div>
 
     <div style={s.footer}>
@@ -101,7 +150,8 @@ export const InputBar = ({
       </span>
     </div>
   </motion.div>
-);
+  );
+};
 
 const s: Record<string, React.CSSProperties> = {
   inputSection: { flexShrink: 0, display: "flex", flexDirection: "column", gap: "8px" },
@@ -109,6 +159,7 @@ const s: Record<string, React.CSSProperties> = {
   stat: { fontSize: "10px", color: "#3a3a48", letterSpacing: "0.06em" },
   statDivider: { color: "#2a2a38", fontSize: "10px" },
   inputWrap: { display: "flex", alignItems: "center", gap: "10px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "10px 12px", transition: "box-shadow 0.2s" },
+  signInGate: { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
   attachBtn: { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", userSelect: "none", transition: "all 0.2s" },
   fileChip: { display: "flex", alignItems: "center", gap: "7px", padding: "6px 11px", borderRadius: "10px", border: "1px solid #4ade8033", background: "#4ade800d", flexShrink: 0 },
   chipName: { fontSize: "10px", color: "#4ade80", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },

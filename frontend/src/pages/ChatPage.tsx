@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@clerk/react";
 import { Background } from "../components/Background";
 import { Header } from "../components/Header";
 import { Sidebar } from "../components/Sidebar";
@@ -20,6 +21,9 @@ interface HistoryItem { q: string; a: string }
 interface Chat { id: string; title: string; created_at: string }
 
 const ChatPage = () => {
+  const { isSignedIn } = useAuth();
+  const signedIn = Boolean(isSignedIn);
+
   // ── State ──
   const [message, setMessage] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -114,10 +118,11 @@ const ChatPage = () => {
     setChatId(null); setHistory([]); setMessage(""); setCharCount(0);
     setFile(null); setFileName(""); setResponse("");
     currentResponseRef.current = ""; setCurrentQ("");
-    setTimeout(() => inputRef.current?.focus(), 100);
+    if (signedIn) setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!signedIn) return;
     const f = e.target.files?.[0];
     if (!f) return;
     if (f.type !== "application/pdf") { alert("Only PDF files are allowed"); return; }
@@ -125,7 +130,7 @@ const ChatPage = () => {
   };
 
   const handleSend = async () => {
-    if (!message.trim() || isStreaming) return;
+    if (!signedIn || !message.trim() || isStreaming) return;
     const q = message.trim();
     const fd = new FormData();
     if (file) fd.append("File", file);
@@ -195,6 +200,7 @@ const ChatPage = () => {
           chatId={chatId}
           isStreaming={isStreaming}
           focused={focused}
+          signedIn={signedIn}
           inputRef={inputRef}
           historyLength={history.length}
           onChange={(val) => { setMessage(val); setCharCount(val.length); }}

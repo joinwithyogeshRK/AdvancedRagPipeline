@@ -1,4 +1,10 @@
 import { motion } from "framer-motion";
+import {
+  Show,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/react";
 
 interface Props {
   chatId: string | null;
@@ -72,6 +78,28 @@ export const Header = ({ chatId, file, fileName, onRemoveFile, onNewChat, onOpen
         <motion.span style={s.liveDot} animate={{ opacity: [1, 0.3, 1], scale: [1, 0.8, 1] }} transition={{ duration: 2, repeat: Infinity }} />
         <span style={s.liveLabel}>LIVE</span>
       </div>
+
+      <Show when="signed-out">
+        <SignInButton mode="modal">
+          <button type="button" style={s.authTrigger}>
+            Sign in
+          </button>
+        </SignInButton>
+        <SignUpButton mode="modal">
+          <button type="button" style={{ ...s.authTrigger, color: "#9a9aa8" }}>
+            Sign up
+          </button>
+        </SignUpButton>
+      </Show>
+      <Show when="signed-in">
+        <UserButton
+          appearance={{
+            elements: {
+              userButtonAvatarBox: { width: 32, height: 32 },
+            },
+          }}
+        />
+      </Show>
     </div>
   </motion.header>
 );
@@ -95,4 +123,5 @@ const s: Record<string, React.CSSProperties> = {
   liveDot: { display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 8px #4ade8088" },
   liveLabel: { fontSize: "9px", letterSpacing: "0.2em", color: "#6b6b78", fontWeight: 600 },
   sidebarToggle: { display: "flex", alignItems: "center", justifyContent: "center", width: "36px", height: "36px", borderRadius: "10px", border: "1px solid #222230", background: "#111118", color: "#6b6b78", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" },
+  authTrigger: { padding: "6px 12px", borderRadius: 999, border: "1px solid #222230", background: "#111118", color: "#c9a84c", fontSize: 9, letterSpacing: "0.12em", fontWeight: 600, cursor: "pointer", fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap" },
 };
