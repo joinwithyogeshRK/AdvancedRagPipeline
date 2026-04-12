@@ -9,8 +9,6 @@ import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
 const defaultOrigins = [
     "https://advanced-rag-pipeline.vercel.app",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
 ];
 const origins = process.env.FRONTEND_ORIGINS?.split(",")
     .map((o) => o.trim())
