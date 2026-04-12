@@ -7,27 +7,32 @@ const pinecone = new Pinecone({
 
 const index = pinecone.index("rag-index");
 
+/** Tags vectors with Supabase user id so queries never return another account's documents. */
 export const storeInPinecone = async (
   embeddedChunks: { text: string; vector: number[] }[],
+  userId: string,
 ) => {
+  const ts = Date.now();
   const vectors = embeddedChunks.map((chunk, i) => ({
-    id: `chunk-${Date.now()}-${i}`,
+    id: `${userId}-${ts}-${i}`,
     values: chunk.vector,
-    metadata: { text: chunk.text },
+    metadata: { text: chunk.text, userId },
   }));
 
   await index.upsert({ records: vectors });
-  console.log(`✅ Stored ${vectors.length} vectors in Pinecone`);
+  console.log(`✅ Stored ${vectors.length} vectors in Pinecone (user-scoped)`);
 };
 
 export const searchPinecone = async (
   queryVector: number[],
+  userId: string,
   topK: number = 5,
 ): Promise<string[]> => {
   const results = await index.query({
     vector: queryVector,
     topK,
     includeMetadata: true,
+    filter: { userId: { $eq: userId } },
   });
 
   results.matches?.forEach((m) => {

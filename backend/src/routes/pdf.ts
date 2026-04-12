@@ -54,8 +54,8 @@ const pdf = async (req: Request, res: Response) => {
       const embeddedChunks = await embedChunks(chunks);
       console.log("✅ Step 3 — Chunks embedded");
 
-      // Step 4 — Store in Pinecone
-      await storeInPinecone(embeddedChunks);
+      // Step 4 — Store in Pinecone (vectors tagged with this user only)
+      await storeInPinecone(embeddedChunks, userId);
       console.log("✅ Step 4 — Stored in Pinecone");
     }
 
@@ -63,8 +63,8 @@ const pdf = async (req: Request, res: Response) => {
     const queryVector = await embedQuery(query);
     console.log("✅ Step 5 — Query embedded");
 
-    // Step 6 — Search Pinecone
-    const relevantChunks = await searchPinecone(queryVector);
+    // Step 6 — Search Pinecone (only this user's vectors)
+    const relevantChunks = await searchPinecone(queryVector, userId);
     console.log(`✅ Step 6 — ${relevantChunks.length} relevant chunks found`);
 
     if (relevantChunks.length === 0) {
