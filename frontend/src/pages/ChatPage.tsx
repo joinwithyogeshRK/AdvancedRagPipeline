@@ -7,7 +7,7 @@ import { Sidebar } from "../components/Sidebar";
 import { MessageList } from "../components/MessageList";
 import { InputBar } from "../components/InputBar";
 
-const API = "http://localhost:3009";
+const API = "https://advancedragpipeline.onrender.com";
 
 const getOrCreateUserId = () => {
   let id = localStorage.getItem("oracle_user_id");
