@@ -5,6 +5,7 @@ import { Router } from "express";
 import multer from "multer";
 import test from "./routes/pdf.js";
 import historyRouter from "./routes/history.js";
+import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
 
 const defaultOrigins = [
@@ -36,6 +37,7 @@ app.use(router1);
 
 router1.post("/query", requireClerkSession, data, test);
 router1.use("/history", historyRouter);
+router1.use("/auth/github", githubAuthRouter);
 
 app.listen(PORT, function (err: unknown) {
   if (err) console.log(err);

@@ -5,6 +5,7 @@ import {
   SignUpButton,
   UserButton,
 } from "@clerk/react";
+import { GithubOAuth } from "./GithubOAuth";
 
 interface Props {
   chatId: string | null;
@@ -92,6 +93,7 @@ export const Header = ({ chatId, file, fileName, onRemoveFile, onNewChat, onOpen
         </SignUpButton>
       </Show>
       <Show when="signed-in">
+        <GithubOAuth />
         <UserButton
           appearance={{
             elements: {
