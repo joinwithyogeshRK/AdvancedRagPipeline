@@ -32,9 +32,18 @@ const pdf = async (req: Request, res: Response) => {
         console.log(
           `✅ Step 1 — Text extracted via ${result.method} (${text.length} chars)`,
         );
-      } catch (extractionError: any) {
-        // Send the user-friendly error message directly to the frontend
-        return res.status(422).json({ error: extractionError.message });
+      } catch (extractionError: unknown) {
+        console.error("PDF extraction failed:", extractionError);
+        const msg =
+          extractionError instanceof Error ? extractionError.message : "";
+        const safe =
+          msg &&
+          !/_KEY|SECRET|TOKEN|password|environment variable/i.test(msg);
+        return res.status(422).json({
+          error: safe
+            ? msg
+            : "We couldn't process this PDF. Try a different file or a smaller PDF.",
+        });
       }
 
       // Step 2 — Chunk

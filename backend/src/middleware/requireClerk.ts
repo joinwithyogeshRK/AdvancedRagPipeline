@@ -9,7 +9,10 @@ export async function requireClerkSession(
 ) {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) {
-    return res.status(500).json({ error: "Server is missing CLERK_SECRET_KEY." });
+    console.error("Auth misconfiguration: Clerk secret key is not set");
+    return res.status(500).json({
+      error: "Service temporarily unavailable. Please try again later.",
+    });
   }
 
   const header = req.headers.authorization;

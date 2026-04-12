@@ -157,7 +157,21 @@ const ChatPage = () => {
       if (res.data?.chatId && !chatId) { setChatId(res.data.chatId); if (sidebarOpen) fetchChats(); }
       typewriterStream(text, q);
     } catch (err: unknown) {
-      const errorMsg = axios.isAxiosError(err) ? (err.response?.data?.error ?? "Something went wrong. Please try again.") : "Something went wrong. Please try again.";
+      let errorMsg = "Something went wrong. Please try again.";
+      if (axios.isAxiosError(err)) {
+        const status = err.response?.status;
+        const bodyErr = err.response?.data?.error;
+        if (status !== undefined && status >= 500) {
+          errorMsg =
+            "Something went wrong on our end. Please try again in a moment.";
+        } else if (
+          typeof bodyErr === "string" &&
+          bodyErr &&
+          !/_KEY|SECRET|TOKEN|password|environment variable/i.test(bodyErr)
+        ) {
+          errorMsg = bodyErr;
+        }
+      }
       setIsStreaming(false);
       typewriterStream(errorMsg, q);
     }

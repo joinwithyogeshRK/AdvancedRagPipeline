@@ -7,7 +7,10 @@ const CACHE_MS = 120_000;
 
 function getClerk() {
   const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) throw new Error("CLERK_SECRET_KEY is not set");
+  if (!secretKey) {
+    console.error("Clerk client misconfiguration: secret key is not set");
+    throw new Error("Clerk client is not configured");
+  }
   return createClerkClient({ secretKey });
 }
 

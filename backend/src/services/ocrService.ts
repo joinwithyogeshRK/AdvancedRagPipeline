@@ -61,7 +61,10 @@ const tryPdf2Json = (buffer: Buffer): Promise<string> => {
 // ── OCR.space extraction ──
 const tryOCR = async (buffer: Buffer, fileName: string): Promise<string> => {
   if (!process.env.OCR_API_KEY) {
-    throw new Error("OCR_API_KEY is not set in environment variables.");
+    console.error("OCR misconfiguration: API key is not set");
+    throw new Error(
+      "Document processing is temporarily unavailable. Please try again later.",
+    );
   }
 
   const formData = new FormData();
@@ -105,7 +108,10 @@ const tryOCR = async (buffer: Buffer, fileName: string): Promise<string> => {
       throw new Error("OCR free tier limit reached. Please try again later.");
     }
 
-    throw new Error(`OCR processing failed: ${errorMsg}`);
+    console.error("OCR API processing error:", errorMsg);
+    throw new Error(
+      "We couldn't read this document. Try a smaller, clearer, or text-based PDF.",
+    );
   }
 
   const result = data.ParsedResults?.[0];
