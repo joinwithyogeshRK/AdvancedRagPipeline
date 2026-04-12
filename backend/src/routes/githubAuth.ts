@@ -17,7 +17,7 @@ function frontendBase(): string {
     .map((o) => o.trim())
     .filter(Boolean)[0];
   if (fromList) return fromList.replace(/\/$/, "");
-  return "http://localhost:5173";
+  return "https://advanced-rag-pipeline.vercel.app";
 }
 
 router.get("/start", requireClerkSession, (req: Request, res: Response) => {
