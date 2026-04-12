@@ -7,7 +7,7 @@ import multer from "multer";
 const app = express();
 app.use(express.json());
 app.use(cors({
-    origin: "https://advanced-rag-pipeline.vercel.app",
+    origin: "http://localhost:5173",
     methods: ["GET", "POST"],
     credentials: true,
 }));
