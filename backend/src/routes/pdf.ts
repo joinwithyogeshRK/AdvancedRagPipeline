@@ -4,6 +4,7 @@ import { chunkText } from "../rag/chunker.js";
 import { embedChunks, embedQuery } from "../rag/embedder.js";
 import { storeInPinecone } from "../rag/pinecone.js";
 import { hybridSearch } from "../rag/hybridSearch.js";
+import { rerankChunks } from "../rag/reranker.js";
 import type { BM25Chunk } from "../rag/bm25.js";
 import { askGroq } from "../rag/groq.js";
 import {
@@ -14,19 +15,15 @@ import {
 
 const pdf = async (req: Request, res: Response) => {
   try {
-    const file    = req.file;
-    const query   = req.body.query;
-    const userId  = req.supabaseUserId!;
-    let   chatId  = req.body.chatId;
+    const file   = req.file;
+    const query  = req.body.query;
+    const userId = req.supabaseUserId!;
+    let   chatId = req.body.chatId;
 
-    // ── Validate query ──────────────────────────────────────
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "No query provided." });
     }
 
-    // ── bm25Chunks lives OUTSIDE the if block ───────────────
-    // So it's always accessible at Step 6 whether or not
-    // a PDF was uploaded in this request
     let bm25Chunks: BM25Chunk[] = []
 
     // ── Process PDF if uploaded ─────────────────────────────
@@ -36,9 +33,7 @@ const pdf = async (req: Request, res: Response) => {
       try {
         const result = await extractTextFromPDF(file.buffer, file.originalname);
         text = result.text;
-        console.log(
-          `✅ Step 1 — Text extracted via ${result.method} (${text.length} chars)`,
-        );
+        console.log(`✅ Step 1 — Text extracted via ${result.method} (${text.length} chars)`);
       } catch (extractionError: unknown) {
         console.error("PDF extraction failed:", extractionError);
         const msg  = extractionError instanceof Error ? extractionError.message : "";
@@ -54,19 +49,18 @@ const pdf = async (req: Request, res: Response) => {
       const chunks = await chunkText(text);
       console.log(`✅ Step 2 — ${chunks.length} chunks created`);
 
-      // Build BM25Chunk array with IDs that match Pinecone IDs
-      // Same timestamp = same IDs as what gets stored in Pinecone
+      // Build BM25 chunks with same IDs as Pinecone
       const ts = Date.now()
       bm25Chunks = chunks.map((chunkText, i) => ({
         id:   `${userId}-${ts}-${i}`,
         text: chunkText,
       }))
 
-      // Step 3 — Embed chunks
+      // Step 3 — Embed
       const embeddedChunks = await embedChunks(chunks);
       console.log("✅ Step 3 — Chunks embedded");
 
-      // Step 4 — Store in Pinecone (using same IDs as bm25Chunks)
+      // Step 4 — Store
       await storeInPinecone(embeddedChunks, userId, ts);
       console.log("✅ Step 4 — Stored in Pinecone");
     }
@@ -75,16 +69,17 @@ const pdf = async (req: Request, res: Response) => {
     const queryVector = await embedQuery(query);
     console.log("✅ Step 5 — Query embedded");
 
-    // Step 6 — Hybrid Search (replaces searchPinecone)
-    const hybridChunks  = await hybridSearch(queryVector, query, bm25Chunks, userId)
-    const relevantChunks = hybridChunks.map(c => c.text)   // Groq still gets string[]
-    console.log(`✅ Step 6 — ${relevantChunks.length} chunks via hybrid search`);
+    // Step 6 — Hybrid Search → Rerank
+    const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId)
+    const reranked       = await rerankChunks(query, hybridChunks.map(c => c.text))
+    const relevantChunks = reranked.map(c => c.text)
+    console.log(`✅ Step 6 — ${relevantChunks.length} chunks reranked and ready`);
 
     if (relevantChunks.length === 0) {
       console.log("⚠️  No chunks found — falling back to Groq general knowledge");
     }
 
-    // Step 7 — Load conversation history
+    // Step 7 — Conversation history
     let conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
     if (chatId) {
       const previousMessages = await getChatMessagesForUser(chatId, userId);
@@ -102,7 +97,7 @@ const pdf = async (req: Request, res: Response) => {
     const answer = await askGroq(query, relevantChunks, conversationHistory);
     console.log("✅ Step 8 — Answer generated");
 
-    // Step 9 — Save to Supabase
+    // Step 9 — Save
     if (!chatId) {
       const newChat = await createChat(userId, query);
       chatId = newChat.id;
