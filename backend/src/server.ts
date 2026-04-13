@@ -21,7 +21,7 @@ const origins =
 
 const app = express();
 app.use(express.json());
-app.use("/documents", documentRouter)
+
 app.use(
   cors({
     origin: origins,
@@ -40,7 +40,7 @@ app.use(router1);
 router1.post("/query", requireClerkSession, data, test);
 router1.use("/history", historyRouter);
 router1.use("/auth/github", githubAuthRouter);
-
+router1.use("/documents", documentRouter)
 
 app.listen(PORT, function (err: unknown) {
   if (err) console.log(err);

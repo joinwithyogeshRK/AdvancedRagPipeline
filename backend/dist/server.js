@@ -17,7 +17,6 @@ const origins = process.env.FRONTEND_ORIGINS?.split(",")
     .filter(Boolean) ?? defaultOrigins;
 const app = express();
 app.use(express.json());
-app.use("/documents", documentRouter);
 app.use(cors({
     origin: origins,
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
@@ -31,6 +30,7 @@ app.use(router1);
 router1.post("/query", requireClerkSession, data, test);
 router1.use("/history", historyRouter);
 router1.use("/auth/github", githubAuthRouter);
+router1.use("/documents", documentRouter);
 app.listen(PORT, function (err) {
     if (err)
         console.log(err);
