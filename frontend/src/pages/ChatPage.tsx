@@ -8,6 +8,7 @@ import { Sidebar } from "../components/Sidebar";
 import { MessageList } from "../components/MessageList";
 import { InputBar } from "../components/InputBar";
 
+import { useRecorder } from "../hooks/useRecorder";
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:3009";
 
 interface HistoryItem { q: string; a: string }
@@ -17,6 +18,11 @@ interface Document { source: string; uploadedAt: number }
 const ChatPage = () => {
   const { isSignedIn, getToken } = useAuth();
   const signedIn = Boolean(isSignedIn);
+  const { isRecording, isTranscribing, recError, startRecording, stopRecording } =
+  useRecorder({
+    onTranscript: (text) => setMessage(text),   // ← populates the input box
+    getToken,
+  });
 
   const authHeaders = async () => {
     const token = await getToken();
@@ -299,6 +305,11 @@ const ChatPage = () => {
         />
 
         <InputBar
+          isRecording={isRecording}
+          isTranscribing={isTranscribing}
+          recError={recError}
+          onRecordStart={startRecording}
+          onRecordStop={stopRecording}
           message={message}
           file={file}
           fileName={fileName}
