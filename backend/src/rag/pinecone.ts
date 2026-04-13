@@ -2,20 +2,35 @@ import "dotenv/config";
 import { Pinecone } from "@pinecone-database/pinecone";
 
 const pinecone = new Pinecone({
-  apiKey:process.env.PINECONE_API_KEY!,
+  apiKey: process.env.PINECONE_API_KEY!,
 });
 
 const index = pinecone.index("rag-index");
 
-/** Tags vectors with Supabase user id so queries never return another account's documents. */
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
+
+export interface PineconeResult {
+  id: string
+  text: string
+  metadata?: Record<string, any>
+}
+
+// ─────────────────────────────────────────────────────────────
+// STORE
+// ─────────────────────────────────────────────────────────────
+
+// CHANGE this in pinecone.ts storeInPinecone:
+
 export const storeInPinecone = async (
   embeddedChunks: { text: string; vector: number[] }[],
   userId: string,
+  ts: number = Date.now(),   // ← accept ts from outside so IDs match BM25
 ) => {
-  const ts = Date.now();
   const vectors = embeddedChunks.map((chunk, i) => ({
-    id: `${userId}-${ts}-${i}`,
-    values: chunk.vector,
+    id:       `${userId}-${ts}-${i}`,   // same formula as bm25Chunks
+    values:   chunk.vector,
     metadata: { text: chunk.text, userId },
   }));
 
@@ -23,11 +38,15 @@ export const storeInPinecone = async (
   console.log(`✅ Stored ${vectors.length} vectors in Pinecone (user-scoped)`);
 };
 
+// ─────────────────────────────────────────────────────────────
+// SEARCH — now returns PineconeResult[] instead of string[]
+// ─────────────────────────────────────────────────────────────
+
 export const searchPinecone = async (
   queryVector: number[],
   userId: string,
   topK: number = 5,
-): Promise<string[]> => {
+): Promise<PineconeResult[]> => {
   const results = await index.query({
     vector: queryVector,
     topK,
@@ -41,12 +60,15 @@ export const searchPinecone = async (
     );
   });
 
-  // Return all matches regardless of score — Groq gets all 5 chunks always
-  const chunks =
-    results.matches?.map((m) => m.metadata?.text as string).filter(Boolean) ??
-    [];
+  const chunks: PineconeResult[] =
+    results.matches
+      ?.filter((m) => m.metadata?.text)
+      .map((m) => ({
+        id:       m.id,
+        text:     m.metadata!.text as string,
+        metadata: m.metadata as Record<string, any>,
+      })) ?? [];
 
   console.log(`✅ Found ${chunks.length} chunks`);
-
   return chunks;
 };

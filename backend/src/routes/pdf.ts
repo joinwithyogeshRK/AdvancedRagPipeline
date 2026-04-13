@@ -2,7 +2,9 @@ import type { Request, Response } from "express";
 import { extractTextFromPDF } from "../services/ocrService.js";
 import { chunkText } from "../rag/chunker.js";
 import { embedChunks, embedQuery } from "../rag/embedder.js";
-import { storeInPinecone, searchPinecone } from "../rag/pinecone.js";
+import { storeInPinecone } from "../rag/pinecone.js";
+import { hybridSearch } from "../rag/hybridSearch.js";
+import type { BM25Chunk } from "../rag/bm25.js";
 import { askGroq } from "../rag/groq.js";
 import {
   createChat,
@@ -12,17 +14,22 @@ import {
 
 const pdf = async (req: Request, res: Response) => {
   try {
-    const file = req.file;
-    const query = req.body.query;
-    const userId = req.supabaseUserId!;
-    let chatId = req.body.chatId;
+    const file    = req.file;
+    const query   = req.body.query;
+    const userId  = req.supabaseUserId!;
+    let   chatId  = req.body.chatId;
 
-    // ── Validate query ──
+    // ── Validate query ──────────────────────────────────────
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "No query provided." });
     }
 
-    // ── Process PDF if uploaded ──
+    // ── bm25Chunks lives OUTSIDE the if block ───────────────
+    // So it's always accessible at Step 6 whether or not
+    // a PDF was uploaded in this request
+    let bm25Chunks: BM25Chunk[] = []
+
+    // ── Process PDF if uploaded ─────────────────────────────
     if (file && file.buffer) {
       let text: string;
 
@@ -34,11 +41,8 @@ const pdf = async (req: Request, res: Response) => {
         );
       } catch (extractionError: unknown) {
         console.error("PDF extraction failed:", extractionError);
-        const msg =
-          extractionError instanceof Error ? extractionError.message : "";
-        const safe =
-          msg &&
-          !/_KEY|SECRET|TOKEN|password|environment variable/i.test(msg);
+        const msg  = extractionError instanceof Error ? extractionError.message : "";
+        const safe = msg && !/_KEY|SECRET|TOKEN|password|environment variable/i.test(msg);
         return res.status(422).json({
           error: safe
             ? msg
@@ -50,12 +54,20 @@ const pdf = async (req: Request, res: Response) => {
       const chunks = await chunkText(text);
       console.log(`✅ Step 2 — ${chunks.length} chunks created`);
 
+      // Build BM25Chunk array with IDs that match Pinecone IDs
+      // Same timestamp = same IDs as what gets stored in Pinecone
+      const ts = Date.now()
+      bm25Chunks = chunks.map((chunkText, i) => ({
+        id:   `${userId}-${ts}-${i}`,
+        text: chunkText,
+      }))
+
       // Step 3 — Embed chunks
       const embeddedChunks = await embedChunks(chunks);
       console.log("✅ Step 3 — Chunks embedded");
 
-      // Step 4 — Store in Pinecone (vectors tagged with this user only)
-      await storeInPinecone(embeddedChunks, userId);
+      // Step 4 — Store in Pinecone (using same IDs as bm25Chunks)
+      await storeInPinecone(embeddedChunks, userId, ts);
       console.log("✅ Step 4 — Stored in Pinecone");
     }
 
@@ -63,38 +75,34 @@ const pdf = async (req: Request, res: Response) => {
     const queryVector = await embedQuery(query);
     console.log("✅ Step 5 — Query embedded");
 
-    // Step 6 — Search Pinecone (only this user's vectors)
-    const relevantChunks = await searchPinecone(queryVector, userId);
-    console.log(`✅ Step 6 — ${relevantChunks.length} relevant chunks found`);
+    // Step 6 — Hybrid Search (replaces searchPinecone)
+    const hybridChunks  = await hybridSearch(queryVector, query, bm25Chunks, userId)
+    const relevantChunks = hybridChunks.map(c => c.text)   // Groq still gets string[]
+    console.log(`✅ Step 6 — ${relevantChunks.length} chunks via hybrid search`);
 
     if (relevantChunks.length === 0) {
-      console.log(
-        "⚠️  No chunks found — falling back to Groq general knowledge",
-      );
+      console.log("⚠️  No chunks found — falling back to Groq general knowledge");
     }
 
     // Step 7 — Load conversation history
-    let conversationHistory: { role: "user" | "assistant"; content: string }[] =
-      [];
+    let conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
     if (chatId) {
       const previousMessages = await getChatMessagesForUser(chatId, userId);
       if (!previousMessages) {
         return res.status(403).json({ error: "This chat does not belong to your account." });
       }
       conversationHistory = previousMessages.flatMap((m: { query: string; answer: string }) => [
-        { role: "user" as const, content: m.query },
+        { role: "user"      as const, content: m.query  },
         { role: "assistant" as const, content: m.answer },
       ]);
-      console.log(
-        `✅ Step 7 — Loaded ${previousMessages.length} previous messages`,
-      );
+      console.log(`✅ Step 7 — Loaded ${previousMessages.length} previous messages`);
     }
 
     // Step 8 — Ask Groq
     const answer = await askGroq(query, relevantChunks, conversationHistory);
     console.log("✅ Step 8 — Answer generated");
 
-    // Step 9 — Save to Supabase (user resolved via Clerk middleware)
+    // Step 9 — Save to Supabase
     if (!chatId) {
       const newChat = await createChat(userId, query);
       chatId = newChat.id;
@@ -103,8 +111,9 @@ const pdf = async (req: Request, res: Response) => {
 
     await saveMessage(chatId, userId, query, answer, !!(file && file.buffer));
     console.log("✅ Step 10 — Message saved to Supabase");
-    console.log(answer);
+
     res.json({ text: answer, chatId: chatId ?? null });
+
   } catch (error: any) {
     console.error("Unhandled error:", error);
     res.status(500).json({ error: "Something went wrong. Please try again." });

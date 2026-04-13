@@ -26,7 +26,11 @@ export const MessageList = ({ history, isStreaming, response, currentQ, scrollRe
               </svg>
             </div>
             <div style={s.emptyTitle}>Begin your inquiry</div>
-            <div style={s.emptyDesc}>Ask any question directly, or attach a PDF for<br />document-aware retrieval and precise answers.</div>
+            <div style={s.emptyDesc}>
+  Ask anything — upload a PDF, drop a question,
+  <br />
+  or paste a GitHub URL to explore any codebase.
+</div>
             <div style={s.emptyTags}>
               {["Document Analysis", "Semantic Search", "RAG Pipeline", "Knowledge Retrieval"].map((t) => (
                 <span key={t} style={s.emptyTag}>{t}</span>
