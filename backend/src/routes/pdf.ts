@@ -7,6 +7,8 @@ import { hybridSearch } from "../rag/hybridSearch.js";
 import { rerankChunks } from "../rag/reranker.js";
 import type { BM25Chunk } from "../rag/bm25.js";
 import { askGroq } from "../rag/groq.js";
+// ADD import at top
+import { generateHypotheticalDocument } from '../rag/hyde.js'
 import {
   createChat,
   saveMessage,
@@ -66,8 +68,12 @@ const pdf = async (req: Request, res: Response) => {
     }
 
     // Step 5 — Embed query
-    const queryVector = await embedQuery(query);
-    console.log("✅ Step 5 — Query embedded");
+   // Step 5 — HyDE + Embed
+   // Generate hypothetical answer → embed that instead of raw query
+   const hypothetical  = await generateHypotheticalDocument(query)  // ← NEW
+   const queryVector   = await embedQuery(hypothetical)              // ← was embedQuery(query)
+   console.log('✅ Step 5 — HyDE generated + embedded')
+   console.log("✅ Step 5 — Query embedded");
 
     // Step 6 — Hybrid Search → Rerank
     const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId)
