@@ -7,6 +7,7 @@ import test from "./routes/pdf.js";
 import historyRouter from "./routes/history.js";
 import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
+import documentRouter from "./routes/document.js";
 
 const defaultOrigins = [
   "https://advanced-rag-pipeline.vercel.app",
@@ -19,6 +20,7 @@ const origins =
 
 const app = express();
 app.use(express.json());
+app.use("/documents", documentRouter)
 app.use(
   cors({
     origin: origins,
@@ -37,6 +39,7 @@ app.use(router1);
 router1.post("/query", requireClerkSession, data, test);
 router1.use("/history", historyRouter);
 router1.use("/auth/github", githubAuthRouter);
+
 
 app.listen(PORT, function (err: unknown) {
   if (err) console.log(err);
