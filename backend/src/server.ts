@@ -12,6 +12,10 @@ import documentRouter from "./routes/document.js";
 const defaultOrigins = [
   "https://advanced-rag-pipeline.vercel.app",
   "https://advanced-rag-pipeline-git-test-joinwithyogesh17-9788s-projects.vercel.app"
+<<<<<<< HEAD
+=======
+
+>>>>>>> test
 ];
 const origins =
   process.env.FRONTEND_ORIGINS?.split(",")
