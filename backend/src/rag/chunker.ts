@@ -1,10 +1,19 @@
+// backend/src/rag/chunker.ts
+
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
 const chunkText = async (document: string) => {
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 100, // optimal for Voyage free tier (1024 token limit per chunk)
-    chunkOverlap: 20, // 20% overlap — preserves context across chunk boundaries
-    separators: ["\n\n", "\n", ".", "!", "?", ",", " ", ""], // tries to split naturally
+    chunkSize:    600,   // ← was 100. Enough for 3-4 table rows together
+    chunkOverlap: 80,    // ← was 20. More overlap = context preserved at boundaries
+    separators: [
+      "\n\n",   // paragraph breaks first (highest priority)
+      "\n",     // then line breaks — critical for tables
+      ". ",     // then sentence endings
+      ", ",     // then clause breaks
+      " ",      // then word breaks
+      "",       // last resort — character split
+    ],
   });
 
   const texts = await splitter.splitText(document);
