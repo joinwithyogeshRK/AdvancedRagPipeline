@@ -8,7 +8,8 @@ import historyRouter from "./routes/history.js";
 import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
 const defaultOrigins = [
-    "http://localhost:5173",
+    "https://advanced-rag-pipeline.vercel.app",
+    "https://advanced-rag-pipeline-git-test-joinwithyogesh17-9788s-projects.vercel.app"
 ];
 const origins = process.env.FRONTEND_ORIGINS?.split(",")
     .map((o) => o.trim())
