@@ -7,6 +7,7 @@ import test from "./routes/pdf.js";
 import historyRouter from "./routes/history.js";
 import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
+import documentRouter from "./routes/document.js";
 const defaultOrigins = [
     "https://advanced-rag-pipeline.vercel.app",
     "https://advanced-rag-pipeline-git-test-joinwithyogesh17-9788s-projects.vercel.app"
@@ -29,6 +30,7 @@ app.use(router1);
 router1.post("/query", requireClerkSession, data, test);
 router1.use("/history", historyRouter);
 router1.use("/auth/github", githubAuthRouter);
+router1.use("/documents", documentRouter);
 app.listen(PORT, function (err) {
     if (err)
         console.log(err);
