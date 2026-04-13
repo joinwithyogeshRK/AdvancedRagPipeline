@@ -47,7 +47,7 @@ export async function transcribeAudio(
     {
       audio_url:         audioUrl,
       language_detection: true,
-      speech_model:      "best",
+      speech_models:     ["universal-3-pro", "universal-2"], // ← FIXED: was "speech_model"
     },
     { headers }
   );
