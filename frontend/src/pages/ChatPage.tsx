@@ -10,6 +10,7 @@ import { InputBar } from "../components/InputBar";
 
 const API =
   import.meta.env.VITE_API_URL ?? "http://localhost:3009";
+  
 
 interface HistoryItem { q: string; a: string }
 interface Chat { id: string; title: string; created_at: string }
