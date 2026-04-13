@@ -17,46 +17,97 @@ export interface PineconeResult {
   metadata?: Record<string, any>
 }
 
-// ─────────────────────────────────────────────────────────────
-// STORE
-// ─────────────────────────────────────────────────────────────
+export interface MetadataFilter {
+  source?:     string
+  uploadedAt?: {
+    after?:  number
+    before?: number
+  }
+}
 
-// CHANGE this in pinecone.ts storeInPinecone:
+// ─────────────────────────────────────────────────────────────
+// STORE — now accepts rich metadata
+// ─────────────────────────────────────────────────────────────
 
 export const storeInPinecone = async (
   embeddedChunks: { text: string; vector: number[] }[],
-  userId: string,
-  ts: number = Date.now(),   // ← accept ts from outside so IDs match BM25
+  userId:         string,
+  ts:             number = Date.now(),
+  source:         string = 'unknown',   // ← filename
 ) => {
   const vectors = embeddedChunks.map((chunk, i) => ({
-    id:       `${userId}-${ts}-${i}`,   // same formula as bm25Chunks
-    values:   chunk.vector,
-    metadata: { text: chunk.text, userId },
+    id:     `${userId}-${ts}-${i}`,
+    values: chunk.vector,
+    metadata: {
+      text:        chunk.text,
+      userId,
+      source,                           // ← filename stored here
+      uploadedAt:  ts,                  // ← timestamp stored here
+      chunkIndex:  i,                   // ← position in document
+      totalChunks: embeddedChunks.length,
+    },
   }));
 
   await index.upsert({ records: vectors });
-  console.log(`✅ Stored ${vectors.length} vectors in Pinecone (user-scoped)`);
+  console.log(`✅ Stored ${vectors.length} vectors | source: ${source}`);
 };
 
 // ─────────────────────────────────────────────────────────────
-// SEARCH — now returns PineconeResult[] instead of string[]
+// BUILD PINECONE FILTER — translates our MetadataFilter to
+// Pinecone's filter syntax
+// ─────────────────────────────────────────────────────────────
+
+function buildFilter(userId: string, filter?: MetadataFilter) {
+  const must: Record<string, any>[] = [
+    { userId: { $eq: userId } }         // always filter by user
+  ]
+
+  if (filter?.source) {
+    must.push({ source: { $eq: filter.source } })
+  }
+
+  if (filter?.uploadedAt?.after) {
+    must.push({ uploadedAt: { $gte: filter.uploadedAt.after } })
+  }
+
+  if (filter?.uploadedAt?.before) {
+    must.push({ uploadedAt: { $lte: filter.uploadedAt.before } })
+  }
+
+  // If only userId filter → return simple object (your current behavior)
+  if (must.length === 1) {
+    return { userId: { $eq: userId } }
+  }
+
+  // Multiple filters → use $and
+  return { $and: must }
+}
+
+// ─────────────────────────────────────────────────────────────
+// SEARCH — now accepts optional metadata filter
 // ─────────────────────────────────────────────────────────────
 
 export const searchPinecone = async (
   queryVector: number[],
-  userId: string,
-  topK: number = 5,
+  userId:      string,
+  topK:        number = 5,
+  filter?:     MetadataFilter,        // ← optional, backward compatible
 ): Promise<PineconeResult[]> => {
+
+  const pineconeFilter = buildFilter(userId, filter)
+
+  console.log('🔎 Pinecone filter:', JSON.stringify(pineconeFilter))
+
   const results = await index.query({
-    vector: queryVector,
+    vector:          queryVector,
     topK,
     includeMetadata: true,
-    filter: { userId: { $eq: userId } },
+    filter:          pineconeFilter,
   });
 
   results.matches?.forEach((m) => {
     console.log(
-      `  Score: ${m.score?.toFixed(4)} — "${(m.metadata?.text as string)?.slice(0, 60)}..."`,
+      `  Score: ${m.score?.toFixed(4)} | source: ${m.metadata?.source} — "${(m.metadata?.text as string)?.slice(0, 50)}..."`,
     );
   });
 

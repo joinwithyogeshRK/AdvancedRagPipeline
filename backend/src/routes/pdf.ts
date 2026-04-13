@@ -5,10 +5,11 @@ import { embedChunks, embedQuery } from "../rag/embedder.js";
 import { storeInPinecone } from "../rag/pinecone.js";
 import { hybridSearch } from "../rag/hybridSearch.js";
 import { rerankChunks } from "../rag/reranker.js";
+import { generateHypotheticalDocument } from "../rag/hyde.js";
 import type { BM25Chunk } from "../rag/bm25.js";
+import type { MetadataFilter } from "../rag/pinecone.js";
 import { askGroq } from "../rag/groq.js";
-// ADD import at top
-import { generateHypotheticalDocument } from '../rag/hyde.js'
+import { evalRAG } from '../rag/evaluator.js'
 import {
   createChat,
   saveMessage,
@@ -17,14 +18,37 @@ import {
 
 const pdf = async (req: Request, res: Response) => {
   try {
-    const file   = req.file;
-    const query  = req.body.query;
-    const userId = req.supabaseUserId!;
-    let   chatId = req.body.chatId;
+    const file     = req.file;
+    const query    = req.body.query;
+    const userId   = req.supabaseUserId!;
+    let   chatId   = req.body.chatId;
+
+    // Optional filter params from frontend
+    // Frontend can send: { source: "grade-sheet.pdf" }
+    // or:               { uploadedAfter: 1710000000000 }
+    const filterSource      = req.body.filterSource      as string | undefined
+    const filterAfter       = req.body.filterAfter       as number | undefined
+    const filterBefore      = req.body.filterBefore      as number | undefined
 
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "No query provided." });
     }
+
+    const metadataFilter: MetadataFilter | undefined = (() => {
+      if (!filterSource && !filterAfter && !filterBefore) return undefined
+    
+      const filter: MetadataFilter = {}
+    
+      if (filterSource)  filter.source = filterSource
+    
+      if (filterAfter || filterBefore) {
+        filter.uploadedAt = {}
+        if (filterAfter)  filter.uploadedAt.after  = filterAfter
+        if (filterBefore) filter.uploadedAt.before = filterBefore
+      }
+    
+      return filter
+    })()
 
     let bm25Chunks: BM25Chunk[] = []
 
@@ -51,8 +75,9 @@ const pdf = async (req: Request, res: Response) => {
       const chunks = await chunkText(text);
       console.log(`✅ Step 2 — ${chunks.length} chunks created`);
 
-      // Build BM25 chunks with same IDs as Pinecone
-      const ts = Date.now()
+      const ts       = Date.now()
+      const source   = file.originalname   // ← filename as source
+
       bm25Chunks = chunks.map((chunkText, i) => ({
         id:   `${userId}-${ts}-${i}`,
         text: chunkText,
@@ -62,21 +87,18 @@ const pdf = async (req: Request, res: Response) => {
       const embeddedChunks = await embedChunks(chunks);
       console.log("✅ Step 3 — Chunks embedded");
 
-      // Step 4 — Store
-      await storeInPinecone(embeddedChunks, userId, ts);
+      // Step 4 — Store with rich metadata
+      await storeInPinecone(embeddedChunks, userId, ts, source);  // ← source passed
       console.log("✅ Step 4 — Stored in Pinecone");
     }
 
-    // Step 5 — Embed query
-   // Step 5 — HyDE + Embed
-   // Generate hypothetical answer → embed that instead of raw query
-   const hypothetical  = await generateHypotheticalDocument(query)  // ← NEW
-   const queryVector   = await embedQuery(hypothetical)              // ← was embedQuery(query)
-   console.log('✅ Step 5 — HyDE generated + embedded')
-   console.log("✅ Step 5 — Query embedded");
+    // Step 5 — HyDE + Embed
+    const hypothetical = await generateHypotheticalDocument(query)
+    const queryVector  = await embedQuery(hypothetical)
+    console.log('✅ Step 5 — HyDE generated + embedded')
 
-    // Step 6 — Hybrid Search → Rerank
-    const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId)
+    // Step 6 — Hybrid Search → Rerank (with optional metadata filter)
+    const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId, 5, metadataFilter)
     const reranked       = await rerankChunks(query, hybridChunks.map(c => c.text))
     const relevantChunks = reranked.map(c => c.text)
     console.log(`✅ Step 6 — ${relevantChunks.length} chunks reranked and ready`);
@@ -100,8 +122,14 @@ const pdf = async (req: Request, res: Response) => {
     }
 
     // Step 8 — Ask Groq
-    const answer = await askGroq(query, relevantChunks, conversationHistory);
-    console.log("✅ Step 8 — Answer generated");
+    // Step 8 — Ask Groq + Evaluate
+const answer = await askGroq(query, relevantChunks, conversationHistory)
+console.log('✅ Step 8 — Answer generated')
+
+// Step 8b — Evaluate (non-blocking — don't await, don't slow down response)
+evalRAG(query, relevantChunks, answer).catch(err =>
+  console.warn('⚠️  Eval failed silently:', err)
+)
 
     // Step 9 — Save
     if (!chatId) {
@@ -113,7 +141,14 @@ const pdf = async (req: Request, res: Response) => {
     await saveMessage(chatId, userId, query, answer, !!(file && file.buffer));
     console.log("✅ Step 10 — Message saved to Supabase");
 
-    res.json({ text: answer, chatId: chatId ?? null });
+    res.json({
+      text:   answer,
+      chatId: chatId ?? null,
+      meta: {
+        source:  filterSource ?? 'all',
+        filter:  metadataFilter ?? null,
+      }
+    });
 
   } catch (error: any) {
     console.error("Unhandled error:", error);
