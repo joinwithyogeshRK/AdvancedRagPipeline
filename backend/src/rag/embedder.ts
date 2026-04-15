@@ -37,10 +37,10 @@ export const embedChunks = async (chunks: string[]) => {
     console.log(`✅ Batch ${Math.floor(i / BATCH_SIZE) + 1} done`);
 
     // ← add delay between batches for free tier rate limit
-    if (i + BATCH_SIZE < chunks.length) {
-      console.log("⏳ Waiting 25s for rate limit...");
-      await new Promise((resolve) => setTimeout(resolve, 25000));
-    }
+    // if (i + BATCH_SIZE < chunks.length) {
+    //   console.log("⏳ Waiting 25s for rate limit...");
+    //   await new Promise((resolve) => setTimeout(resolve, 25000));
+    // }
   }
 
   console.log(`✅ Total embedded: ${allEmbedded.length} chunks`);
