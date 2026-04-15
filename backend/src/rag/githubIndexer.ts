@@ -110,6 +110,7 @@ async function buildHeaders(userId: string): Promise<Record<string, string>> {
   // 1. Try the OAuth token the user connected via /github/start
   try {
     const userToken = await getUserGithubToken(userId)
+    console.log("userToken",userToken)
     if (userToken) {
       headers['Authorization'] = `Bearer ${userToken}`
       return headers
