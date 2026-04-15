@@ -18,7 +18,7 @@ function validateGithubUrl(url: string): string | null {
   return null  // null = valid
 }
 
-export const RepoInput = ({ signedIn, isIndexing, onIndex, onClose }: Props) => {
+export const RepoInput = ({ isIndexing, onIndex, onClose }: Props) => {
   const [url,   setUrl]   = useState("")
   const [error, setError] = useState<string | null>(null)
 
