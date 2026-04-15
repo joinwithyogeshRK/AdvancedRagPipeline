@@ -1,4 +1,3 @@
-// backend/src/server.ts
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -9,11 +8,13 @@ import historyRouter from "./routes/history.js";
 import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
 import documentRouter from "./routes/document.js";
-import transcribeRouter from "./routes/transcribe.js";   // ← NEW
+import transcribeRouter from "./routes/transcribe.js";
+import githubRouter from "./routes/github.js";          // ← ADD
 
 const defaultOrigins = [
   "https://advanced-rag-pipeline.vercel.app",
   "https://advanced-rag-pipeline-git-test-joinwithyogesh17-9788s-projects.vercel.app",
+  "http://localhost:5173"
 ];
 const origins =
   process.env.FRONTEND_ORIGINS?.split(",")
@@ -42,7 +43,8 @@ router1.post("/query",           requireClerkSession, data, test);
 router1.use("/history",          historyRouter);
 router1.use("/auth/github",      githubAuthRouter);
 router1.use("/documents",        documentRouter);
-router1.use("/transcribe",       requireClerkSession, transcribeRouter); // ← NEW
+router1.use("/transcribe",       requireClerkSession, transcribeRouter);
+router1.use("/github",           githubRouter);          // ← ADD
 
 app.listen(PORT, function (err: unknown) {
   if (err) console.log(err);

@@ -1,57 +1,65 @@
-// frontend/src/components/InputBar.tsx
-import { motion, AnimatePresence } from "framer-motion";
-import { useClerk } from "@clerk/react";
+import { useState } from "react"
+import { motion, AnimatePresence } from "framer-motion"
+import { useClerk } from "@clerk/react"
+import { RepoInput } from "./RepoInput"
 
 interface Document {
-  source:     string;
-  uploadedAt: number;
+  source:     string
+  uploadedAt: number
 }
 
 interface Props {
-  message:        string;
-  file:           File | null;
-  fileName:       string;
-  charCount:      number;
-  chatId:         string | null;
-  isStreaming:    boolean;
-  focused:        boolean;
-  signedIn:       boolean;
-  inputRef:       React.RefObject<HTMLInputElement | null>;
-  documents:      Document[];
-  selectedSource: string;
-  loadingDocs:    boolean;
-  // Recording props ↓
-  isRecording:    boolean;
-  isTranscribing: boolean;
-  recError:       string | null;
-  onRecordStart:  () => void;
-  onRecordStop:   () => void;
-  // Existing callbacks
-  onSourceChange: (val: string) => void;
-  onChange:       (val: string) => void;
-  onFocus:        () => void;
-  onBlur:         () => void;
-  onSend:         () => void;
-  onStop:         () => void;
-  onFileChange:   (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onRemoveFile:   () => void;
-  historyLength:  number;
+  message:        string
+  file:           File | null
+  fileName:       string
+  charCount:      number
+  chatId:         string | null
+  isStreaming:    boolean
+  focused:        boolean
+  signedIn:       boolean
+  inputRef:       React.RefObject<HTMLInputElement | null>
+  documents:      Document[]
+  selectedSource: string
+  loadingDocs:    boolean
+  isRecording:    boolean
+  isTranscribing: boolean
+  recError:       string | null
+  isIndexing:     boolean
+  onRecordStart:  () => void
+  onRecordStop:   () => void
+  onSourceChange: (val: string) => void
+  onChange:       (val: string) => void
+  onFocus:        () => void
+  onBlur:         () => void
+  onSend:         () => void
+  onStop:         () => void
+  onFileChange:   (e: React.ChangeEvent<HTMLInputElement>) => void
+  onRemoveFile:   () => void
+  onIndexRepo:    (url: string) => void
+  historyLength:  number
 }
 
 export const InputBar = ({
   message, file, fileName, charCount, chatId, isStreaming,
   focused, signedIn, inputRef, documents, selectedSource, loadingDocs,
-  isRecording, isTranscribing, recError,
-  onRecordStart, onRecordStop,
-  onSourceChange, onChange, onFocus, onBlur, onSend, onStop,
-  onFileChange, onRemoveFile, historyLength,
+  isRecording, isTranscribing, recError, isIndexing,
+  onRecordStart, onRecordStop, onSourceChange, onChange,
+  onFocus, onBlur, onSend, onStop, onFileChange, onRemoveFile,
+  onIndexRepo, historyLength,
 }: Props) => {
-  const { openSignIn } = useClerk();
-  const canChat     = signedIn && !isStreaming && !isRecording && !isTranscribing;
-  const sendEnabled = signedIn && message.trim().length > 0 && !isStreaming && !isRecording && !isTranscribing;
-  const hasDocs     = documents.length > 0;
+  const { openSignIn }     = useClerk()
+  const [showRepo, setShowRepo] = useState(false)
 
-  const promptSignIn = () => { void openSignIn(); };
+  const canChat     = signedIn && !isStreaming && !isRecording && !isTranscribing
+  const sendEnabled = signedIn && message.trim().length > 0 && !isStreaming && !isRecording && !isTranscribing
+  const hasDocs     = documents.length > 0
+
+  const promptSignIn = () => { void openSignIn() }
+
+  const handleIndexRepo = (url: string) => {
+    onIndexRepo(url)
+    // Don't close — let parent control close after success
+  }
 
   return (
     <motion.div
@@ -83,7 +91,8 @@ export const InputBar = ({
             {chatId ? "Chat active" : "New session"}
           </span>
         </span>
-        {/* Recording / transcribing badge */}
+
+        {/* Recording badge */}
         <AnimatePresence>
           {(isRecording || isTranscribing) && (
             <motion.span
@@ -94,8 +103,7 @@ export const InputBar = ({
             >
               {isRecording ? (
                 <>
-                  <motion.span
-                    style={s.recDot}
+                  <motion.span style={s.recDot}
                     animate={{ opacity: [1, 0.2, 1] }}
                     transition={{ repeat: Infinity, duration: 1 }}
                   />
@@ -103,8 +111,7 @@ export const InputBar = ({
                 </>
               ) : (
                 <>
-                  <motion.span
-                    style={{ ...s.recDot, background: "#c9a84c" }}
+                  <motion.span style={{ ...s.recDot, background: "#c9a84c" }}
                     animate={{ opacity: [1, 0.2, 1] }}
                     transition={{ repeat: Infinity, duration: 0.8 }}
                   />
@@ -114,13 +121,31 @@ export const InputBar = ({
             </motion.span>
           )}
         </AnimatePresence>
+
+        {/* Indexing badge */}
+        <AnimatePresence>
+          {isIndexing && (
+            <motion.span
+              style={s.indexingBadge}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+            >
+              <motion.span
+                style={{ ...s.recDot, background: "#818cf8" }}
+                animate={{ opacity: [1, 0.2, 1] }}
+                transition={{ repeat: Infinity, duration: 0.9 }}
+              />
+              indexing repo…
+            </motion.span>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Error banner */}
       <AnimatePresence>
         {recError && (
-          <motion.div
-            style={s.errBanner}
+          <motion.div style={s.errBanner}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
@@ -130,7 +155,7 @@ export const InputBar = ({
         )}
       </AnimatePresence>
 
-      {/* ── Document Selector ─────────────────────────────── */}
+      {/* Document selector */}
       <AnimatePresence>
         {signedIn && hasDocs && (
           <motion.div
@@ -147,14 +172,14 @@ export const InputBar = ({
             </svg>
 
             <span style={s.docLabel}>Search in:</span>
+
             {loadingDocs && (
               <span style={{ fontSize: "9px", color: "#3a3a48", fontFamily: "'DM Mono',monospace" }}>
                 loading…
               </span>
             )}
 
-            <motion.button
-              type="button"
+            <motion.button type="button"
               onClick={() => onSourceChange("all")}
               style={{ ...s.docPill, ...(selectedSource === "all" ? s.docPillActive : {}) }}
               whileHover={{ borderColor: "#c9a84c66" }}
@@ -173,20 +198,31 @@ export const InputBar = ({
                 whileTap={{ scale: 0.95 }}
                 title={doc.source}
               >
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-                >
-                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                {doc.source.length > 20 ? doc.source.slice(0, 17) + "..." : doc.source}
+                {/* Different icon for github sources */}
+                {doc.source.startsWith('github:') ? (
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                  </svg>
+                ) : (
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                  >
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                )}
+                {doc.source.startsWith('github:')
+                  ? doc.source.replace('github:', '').slice(0, 20)
+                  : doc.source.length > 20
+                    ? doc.source.slice(0, 17) + "..."
+                    : doc.source
+                }
               </motion.button>
             ))}
 
             <AnimatePresence>
               {selectedSource !== "all" && (
-                <motion.span
-                  style={s.filterActive}
+                <motion.span style={s.filterActive}
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
@@ -199,6 +235,18 @@ export const InputBar = ({
         )}
       </AnimatePresence>
 
+      {/* GitHub repo input panel */}
+      <AnimatePresence>
+        {showRepo && (
+          <RepoInput
+            signedIn={signedIn}
+            isIndexing={isIndexing}
+            onIndex={handleIndexRepo}
+            onClose={() => setShowRepo(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Input wrap */}
       <motion.div
         style={{
@@ -207,17 +255,18 @@ export const InputBar = ({
           opacity: signedIn ? 1 : 0.72,
           boxShadow: isRecording
             ? "0 0 0 1.5px #f8717166, 0 8px 48px #f8717114, inset 0 1px 0 #f8717111"
+            : isIndexing
+            ? "0 0 0 1.5px #818cf866, 0 8px 48px #818cf814, inset 0 1px 0 #818cf811"
             : focused && signedIn
             ? "0 0 0 1.5px #c9a84c66, 0 8px 48px #c9a84c14, inset 0 1px 0 #c9a84c11"
             : "0 0 0 1px #222230, 0 4px 24px #00000070, inset 0 1px 0 #ffffff06",
         }}
         transition={{ duration: 0.2 }}
       >
-        {/* PDF attach / chip */}
+        {/* PDF attach */}
         <AnimatePresence mode="wait">
           {!file ? (
-            <motion.label
-              key="attach"
+            <motion.label key="attach"
               style={{
                 ...s.attachBtn,
                 pointerEvents: signedIn ? "auto" : "none",
@@ -233,25 +282,18 @@ export const InputBar = ({
               exit={{ opacity: 0 }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
               >
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
               </svg>
               PDF
               {signedIn && (
-                <input
-                  type="file"
-                  accept="application/pdf"
-                  style={{ display: "none" }}
-                  onChange={onFileChange}
-                />
+                <input type="file" accept="application/pdf"
+                  style={{ display: "none" }} onChange={onFileChange} />
               )}
             </motion.label>
           ) : (
-            <motion.div
-              key="chip"
-              style={s.fileChip}
+            <motion.div key="chip" style={s.fileChip}
               initial={{ opacity: 0, scale: 0.88 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
@@ -263,15 +305,10 @@ export const InputBar = ({
                 <polyline points="14 2 14 8 20 8" />
               </svg>
               <span style={s.chipName}>{fileName}</span>
-              <button
-                type="button"
+              <button type="button"
                 onClick={signedIn ? onRemoveFile : undefined}
                 disabled={!signedIn}
-                style={{
-                  ...s.chipX,
-                  opacity: signedIn ? 1 : 0.35,
-                  cursor:  signedIn ? "pointer" : "not-allowed",
-                }}
+                style={{ ...s.chipX, opacity: signedIn ? 1 : 0.35, cursor: signedIn ? "pointer" : "not-allowed" }}
               >✕</button>
             </motion.div>
           )}
@@ -279,33 +316,45 @@ export const InputBar = ({
 
         <div style={s.sep} />
 
-        {/* ── Mic / Record button ──────────────────────────── */}
+        {/* GitHub button */}
+        <motion.button
+          type="button"
+          onClick={signedIn ? () => setShowRepo(v => !v) : promptSignIn}
+          style={{
+            ...s.githubBtn,
+            ...(showRepo ? s.githubBtnActive : {}),
+            opacity: signedIn ? 1 : 0.45,
+            cursor:  signedIn ? "pointer" : "not-allowed",
+          }}
+          whileHover={signedIn ? { borderColor: "#818cf866", color: "#818cf8" } : {}}
+          whileTap={signedIn ? { scale: 0.95 } : {}}
+          title="Index a GitHub repository"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          Repo
+        </motion.button>
+
+        <div style={s.sep} />
+
+        {/* Mic */}
         <AnimatePresence mode="wait">
           {isTranscribing ? (
-            // Spinner pill while AssemblyAI works
-            <motion.div
-              key="transcribing"
-              style={s.transcribingPill}
+            <motion.div key="transcribing" style={s.transcribingPill}
               initial={{ opacity: 0, scale: 0.85 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.85 }}
             >
-              <motion.span
-                style={{ ...s.recDot, background: "#c9a84c", marginRight: 5 }}
+              <motion.span style={{ ...s.recDot, background: "#c9a84c", marginRight: 5 }}
                 animate={{ opacity: [1, 0.2, 1] }}
                 transition={{ repeat: Infinity, duration: 0.7 }}
               />
               transcribing…
             </motion.div>
           ) : (
-            <motion.button
-              key="mic"
-              type="button"
-              onClick={
-                !signedIn ? promptSignIn
-                  : isRecording ? onRecordStop
-                  : onRecordStart
-              }
+            <motion.button key="mic" type="button"
+              onClick={!signedIn ? promptSignIn : isRecording ? onRecordStop : onRecordStart}
               disabled={isTranscribing}
               style={{
                 ...s.micBtn,
@@ -324,17 +373,13 @@ export const InputBar = ({
               title={isRecording ? "Stop recording" : "Record voice message"}
             >
               {isRecording ? (
-                // Pulsing red stop square
-                <motion.span
-                  style={s.stopSqRed}
+                <motion.span style={s.stopSqRed}
                   animate={{ opacity: [1, 0.4, 1] }}
                   transition={{ repeat: Infinity, duration: 0.9 }}
                 />
               ) : (
-                // Mic icon
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="2"
-                  strokeLinecap="round" strokeLinejoin="round"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                 >
                   <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
                   <path d="M19 10v2a7 7 0 01-14 0v-2" />
@@ -353,31 +398,27 @@ export const InputBar = ({
           style={{ ...s.input, cursor: signedIn ? "text" : "not-allowed" }}
           type="text"
           placeholder={
-            isTranscribing
-              ? "Transcribing your voice…"
-              : isRecording
-              ? "Recording — click ■ to stop"
-              : signedIn
+            isIndexing        ? "Indexing repository…" :
+            isTranscribing    ? "Transcribing your voice…" :
+            isRecording       ? "Recording — click ■ to stop" :
+            signedIn
               ? selectedSource !== "all"
-                ? `Ask about ${selectedSource.slice(0, 25)}…`
-                : "Ask anything… or click 🎙 to speak"
+                ? `Ask about ${selectedSource.replace('github:', '').slice(0, 25)}…`
+                : "Ask anything… attach a PDF or index a GitHub repo"
               : "Sign in to ask questions…"
           }
           value={message}
-          disabled={!signedIn || isTranscribing}
+          disabled={!signedIn || isTranscribing || isIndexing}
           onChange={(e) => signedIn && onChange(e.target.value)}
           onFocus={() => signedIn && onFocus()}
           onBlur={onBlur}
           onKeyDown={(e) => e.key === "Enter" && canChat && onSend()}
         />
 
-        {/* Send / Stop streaming */}
+        {/* Send / Stop */}
         <AnimatePresence mode="wait">
           {isStreaming ? (
-            <motion.button
-              key="stop"
-              type="button"
-              onClick={onStop}
+            <motion.button key="stop" type="button" onClick={onStop}
               style={s.stopBtn}
               whileHover={{ scale: 1.08, background: "#c9a84c22" }}
               whileTap={{ scale: 0.92 }}
@@ -388,10 +429,7 @@ export const InputBar = ({
               <span style={s.stopSq} />
             </motion.button>
           ) : (
-            <motion.button
-              key="send"
-              type="button"
-              onClick={onSend}
+            <motion.button key="send" type="button" onClick={onSend}
               disabled={!sendEnabled}
               style={{ ...s.sendBtn, ...(!sendEnabled ? s.sendOff : {}) }}
               whileHover={sendEnabled ? { scale: 1.07 } : {}}
@@ -401,8 +439,7 @@ export const InputBar = ({
               exit={{ opacity: 0, scale: 0.8 }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round"
+                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
               >
                 <line x1="22" y1="2" x2="11" y2="13" />
                 <polygon points="22 2 15 22 11 13 2 9 22 2" />
@@ -412,12 +449,8 @@ export const InputBar = ({
         </AnimatePresence>
 
         {!signedIn && (
-          <button
-            type="button"
-            aria-label="Sign in to use chat"
-            onClick={promptSignIn}
-            style={s.signInGate}
-          />
+          <button type="button" aria-label="Sign in to use chat"
+            onClick={promptSignIn} style={s.signInGate} />
         )}
       </motion.div>
 
@@ -426,100 +459,50 @@ export const InputBar = ({
           <kbd style={s.kbd}>Enter</kbd> to send &nbsp;·&nbsp;
           <kbd style={s.kbd}>🎙</kbd> to speak &nbsp;·&nbsp;
           {selectedSource !== "all"
-            ? <span style={{ color: "#c9a84c" }}> Searching: {selectedSource.slice(0, 20)}</span>
+            ? <span style={{ color: "#c9a84c" }}>
+                Searching: {selectedSource.replace('github:', '').slice(0, 20)}
+              </span>
             : " Powered by RAG + Voyage + Groq"
           }
         </span>
       </div>
     </motion.div>
-  );
-};
+  )
+}
 
-/* ─────────────────────────────────────────────── styles ── */
 const s: Record<string, React.CSSProperties> = {
   inputSection:   { flexShrink: 0, display: "flex", flexDirection: "column", gap: "8px" },
   statsRow:       { display: "flex", alignItems: "center", gap: "8px", padding: "0 6px", marginBottom: "2px", flexWrap: "wrap" },
   stat:           { fontSize: "10px", color: "#3a3a48", letterSpacing: "0.06em" },
   statDivider:    { color: "#2a2a38", fontSize: "10px" },
-
-  // Recording badge in stats row
-  recBadge: {
-    display: "flex", alignItems: "center", gap: "5px",
-    fontSize: "9px", color: "#f87171", fontFamily: "'DM Mono',monospace",
-    letterSpacing: "0.06em", marginLeft: "auto",
-  },
-  recDot: {
-    display: "inline-block", width: "6px", height: "6px",
-    borderRadius: "50%", background: "#f87171", flexShrink: 0,
-  },
-
-  // Error banner
-  errBanner: {
-    fontSize: "10px", color: "#f87171", background: "#f871710d",
-    border: "1px solid #f8717133", borderRadius: "8px",
-    padding: "5px 10px", fontFamily: "'DM Mono',monospace", letterSpacing: "0.04em",
-  },
-
-  // Document selector
-  docSelectorRow: {
-    display: "flex", alignItems: "center", gap: "8px",
-    padding: "6px 8px", borderRadius: "10px",
-    background: "#0e0e14", border: "1px solid #1a1a24", flexWrap: "wrap",
-  },
-  docLabel: {
-    fontSize: "9px", color: "#6b6b78", letterSpacing: "0.08em",
-    fontFamily: "'DM Mono',monospace", textTransform: "uppercase", flexShrink: 0,
-  },
-  docPill: {
-    display: "flex", alignItems: "center", gap: "4px",
-    padding: "3px 9px", borderRadius: "6px", border: "1px solid #222230",
-    background: "transparent", color: "#6b6b78", fontSize: "9px",
-    fontFamily: "'DM Mono',monospace", cursor: "pointer",
-    letterSpacing: "0.04em", transition: "all 0.15s", flexShrink: 0,
-  },
+  recBadge:       { display: "flex", alignItems: "center", gap: "5px", fontSize: "9px", color: "#f87171", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", marginLeft: "auto" },
+  indexingBadge:  { display: "flex", alignItems: "center", gap: "5px", fontSize: "9px", color: "#818cf8", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em" },
+  recDot:         { display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#f87171", flexShrink: 0 },
+  errBanner:      { fontSize: "10px", color: "#f87171", background: "#f871710d", border: "1px solid #f8717133", borderRadius: "8px", padding: "5px 10px", fontFamily: "'DM Mono',monospace", letterSpacing: "0.04em" },
+  docSelectorRow: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 8px", borderRadius: "10px", background: "#0e0e14", border: "1px solid #1a1a24", flexWrap: "wrap" },
+  docLabel:       { fontSize: "9px", color: "#6b6b78", letterSpacing: "0.08em", fontFamily: "'DM Mono',monospace", textTransform: "uppercase" as const, flexShrink: 0 },
+  docPill:        { display: "flex", alignItems: "center", gap: "4px", padding: "3px 9px", borderRadius: "6px", border: "1px solid #222230", background: "transparent", color: "#6b6b78", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", flexShrink: 0 },
   docPillActive:  { borderColor: "#c9a84c66", background: "#c9a84c11", color: "#c9a84c" },
   filterActive:   { fontSize: "9px", color: "#c9a84c88", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", marginLeft: "auto" },
-
-  // Input wrap
-  inputWrap:  { display: "flex", alignItems: "center", gap: "10px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "10px 12px", transition: "box-shadow 0.2s" },
-  signInGate: { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
-  attachBtn:  { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", userSelect: "none", transition: "all 0.2s" },
-  fileChip:   { display: "flex", alignItems: "center", gap: "7px", padding: "6px 11px", borderRadius: "10px", border: "1px solid #4ade8033", background: "#4ade800d", flexShrink: 0 },
-  chipName:   { fontSize: "10px", color: "#4ade80", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  chipX:      { background: "none", border: "none", cursor: "pointer", color: "#6b6b78", fontSize: "10px", padding: "0 2px", lineHeight: 1 },
-  sep:        { width: "1px", height: "22px", background: "#1e1e2a", flexShrink: 0 },
-  input:      { flex: 1, background: "transparent", border: "none", outline: "none", color: "#e0e0ec", fontSize: "14px", fontFamily: "'DM Sans','Segoe UI',sans-serif", letterSpacing: "0.01em", lineHeight: "1.5" },
-
-  // Mic button
-  micBtn: {
-    display: "flex", alignItems: "center", justifyContent: "center",
-    width: "32px", height: "32px", borderRadius: "10px",
-    border: "1px dashed #2a2a38", background: "transparent",
-    color: "#6b6b78", cursor: "pointer", flexShrink: 0, transition: "all 0.2s",
-  },
-  micBtnActive: {
-    borderColor: "#f8717166", background: "#f871710d", color: "#f87171",
-  },
-  stopSqRed: {
-    display: "block", width: "10px", height: "10px",
-    borderRadius: "2px", background: "#f87171",
-  },
-
-  // Transcribing pill
-  transcribingPill: {
-    display: "flex", alignItems: "center",
-    padding: "5px 10px", borderRadius: "10px",
-    border: "1px solid #c9a84c33", background: "#c9a84c0a",
-    color: "#c9a84c", fontSize: "10px", fontFamily: "'DM Mono',monospace",
-    letterSpacing: "0.06em", flexShrink: 0, whiteSpace: "nowrap",
-  },
-
-  // Send / stop
-  sendBtn:    { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "none", background: "linear-gradient(135deg, #c9a84c 0%, #9a7228 100%)", color: "#08080a", cursor: "pointer", flexShrink: 0, boxShadow: "0 2px 16px #c9a84c44" },
-  sendOff:    { opacity: 0.25, cursor: "not-allowed", boxShadow: "none" },
-  stopBtn:    { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "1px solid #c9a84c44", background: "#c9a84c0a", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" },
-  stopSq:     { display: "block", width: "12px", height: "12px", borderRadius: "3px", background: "#c9a84c" },
-  footer:     { display: "flex", justifyContent: "center" },
-  footerText: { fontSize: "10px", color: "#2e2e3c", letterSpacing: "0.05em", fontFamily: "'DM Mono',monospace" },
-  kbd:        { padding: "1px 5px", borderRadius: "4px", border: "1px solid #222230", background: "#111118", color: "#4a4a58", fontSize: "9px" },
-};
+  inputWrap:      { display: "flex", alignItems: "center", gap: "10px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "10px 12px", transition: "box-shadow 0.2s" },
+  signInGate:     { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
+  attachBtn:      { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", userSelect: "none" as const, transition: "all 0.2s" },
+  githubBtn:      { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", background: "transparent", userSelect: "none" as const, transition: "all 0.2s" },
+  githubBtnActive: { borderColor: "#818cf866", color: "#818cf8", background: "#818cf80a" },
+  fileChip:       { display: "flex", alignItems: "center", gap: "7px", padding: "6px 11px", borderRadius: "10px", border: "1px solid #4ade8033", background: "#4ade800d", flexShrink: 0 },
+  chipName:       { fontSize: "10px", color: "#4ade80", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  chipX:          { background: "none", border: "none", cursor: "pointer", color: "#6b6b78", fontSize: "10px", padding: "0 2px", lineHeight: 1 },
+  sep:            { width: "1px", height: "22px", background: "#1e1e2a", flexShrink: 0 },
+  input:          { flex: 1, background: "transparent", border: "none", outline: "none", color: "#e0e0ec", fontSize: "14px", fontFamily: "'DM Sans','Segoe UI',sans-serif", letterSpacing: "0.01em", lineHeight: "1.5" },
+  micBtn:         { display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", borderRadius: "10px", border: "1px dashed #2a2a38", background: "transparent", color: "#6b6b78", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" },
+  micBtnActive:   { borderColor: "#f8717166", background: "#f871710d", color: "#f87171" },
+  stopSqRed:      { display: "block", width: "10px", height: "10px", borderRadius: "2px", background: "#f87171" },
+  transcribingPill: { display: "flex", alignItems: "center", padding: "5px 10px", borderRadius: "10px", border: "1px solid #c9a84c33", background: "#c9a84c0a", color: "#c9a84c", fontSize: "10px", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", flexShrink: 0, whiteSpace: "nowrap" as const },
+  sendBtn:        { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "none", background: "linear-gradient(135deg, #c9a84c 0%, #9a7228 100%)", color: "#08080a", cursor: "pointer", flexShrink: 0, boxShadow: "0 2px 16px #c9a84c44" },
+  sendOff:        { opacity: 0.25, cursor: "not-allowed", boxShadow: "none" },
+  stopBtn:        { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "1px solid #c9a84c44", background: "#c9a84c0a", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" },
+  stopSq:         { display: "block", width: "12px", height: "12px", borderRadius: "3px", background: "#c9a84c" },
+  footer:         { display: "flex", justifyContent: "center" },
+  footerText:     { fontSize: "10px", color: "#2e2e3c", letterSpacing: "0.05em", fontFamily: "'DM Mono',monospace" },
+  kbd:            { padding: "1px 5px", borderRadius: "4px", border: "1px solid #222230", background: "#111118", color: "#4a4a58", fontSize: "9px" },
+}
