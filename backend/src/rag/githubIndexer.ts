@@ -1,6 +1,6 @@
 import { embedChunks } from './embedder.js'
-import { storeInPinecone } from './pinecone.js'
 import { chunkCodeContent } from './codeChunker.js'
+import { getUserGithubToken } from '../services/githubOAuthService.js'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -10,42 +10,42 @@ export interface RepoFile {
   path: string
   type: 'blob' | 'tree'
   size?: number
+  sha?: string   // needed for Git Blob API
 }
 
 export interface IndexResult {
-  repoName:    string
-  fileCount:   number
-  chunkCount:  number
+  repoName:     string
+  fileCount:    number
+  chunkCount:   number
   skippedCount: number
-  tree:        RepoFile[]
+  tree:         RepoFile[]
 }
 
 // ─────────────────────────────────────────────────────────────
 // FILTER RULES
 // ─────────────────────────────────────────────────────────────
 
-const SKIP_DIRS = new Set([
+/**
+ * Path segments to skip at the TREE level — before any file is fetched.
+ * Filtering here saves API calls, not just processing time.
+ */
+const SKIP_DIR_SEGMENTS = new Set([
   'node_modules', 'dist', 'build', '.next', '.git',
   'coverage', '.cache', 'out', '__pycache__', '.pytest_cache',
   '.turbo', '.vercel', '.output', 'vendor', 'target',
   'bin', 'obj', '.gradle', '.idea', '.vscode',
+  '.yarn', '.pnp',
 ])
 
 const SKIP_EXTENSIONS = new Set([
-  // Images
   '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff',
-  // Binary
   '.exe', '.dll', '.so', '.dylib', '.bin', '.wasm',
-  // Archives
   '.zip', '.tar', '.gz', '.rar', '.7z',
-  // Media
   '.mp4', '.mp3', '.wav', '.avi', '.mov', '.pdf',
-  // Data
   '.csv', '.parquet', '.sqlite', '.db',
-  // Compiled/minified
   '.min.js', '.min.css', '.map',
-  // Fonts
   '.ttf', '.woff', '.woff2', '.eot',
+  '.lock',   // covers yarn.lock, poetry.lock, etc. by extension
 ])
 
 const SKIP_FILENAMES = new Set([
@@ -55,43 +55,83 @@ const SKIP_FILENAMES = new Set([
 ])
 
 const KEEP_EXTENSIONS = new Set([
-  // Code
   '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs',
   '.java', '.cpp', '.c', '.cs', '.rb', '.php', '.swift',
   '.kt', '.scala', '.vue', '.svelte',
-  // Config
   '.json', '.yaml', '.yml', '.toml', '.env.example',
-  // Docs
   '.md', '.mdx', '.txt', '.rst',
-  // Web
   '.html', '.css', '.scss', '.sass',
 ])
 
-const MAX_FILE_SIZE = 500_000  // 500KB — skip files larger than this
+const MAX_FILE_SIZE = 500_000  // 500 KB
 
-function shouldSkipPath(filePath: string): boolean {
-  const parts = filePath.split('/')
+/**
+ * Returns true if the file should be skipped.
+ * Called on the raw tree BEFORE fetching any content.
+ * 
+ * Key optimisation: checks every path segment, so a file like
+ * `foo/node_modules/lodash/index.js` is rejected on the segment
+ * `node_modules` without ever touching the GitHub Contents API.
+ */
+function shouldSkipPath(filePath: string, size = 0): boolean {
+  const parts    = filePath.split('/')
+  const fileName = parts[parts.length - 1] ?? ''
+  const dotIdx   = fileName.lastIndexOf('.')
+  const ext      = dotIdx !== -1 ? fileName.slice(dotIdx).toLowerCase() : ''
 
-  // Skip if any directory in path is in SKIP_DIRS
-  for (const part of parts.slice(0, -1)) {
-    if (SKIP_DIRS.has(part)) return true
-    // Skip hidden dirs (except .github)
-    if (part.startsWith('.') && part !== '.github') return true
+  // Reject by size first — cheapest check
+  if (size > MAX_FILE_SIZE) return true
+
+  // Walk every segment except the filename itself
+  for (const seg of parts.slice(0, -1)) {
+    if (SKIP_DIR_SEGMENTS.has(seg))                    return true
+    if (seg.startsWith('.') && seg !== '.github')      return true
   }
 
-  const fileName = parts[parts.length - 1] ?? ''
-  const ext      = '.' + fileName.split('.').pop()?.toLowerCase()
-
-  // Skip specific filenames
-  if (SKIP_FILENAMES.has(fileName)) return true
-
-  // Skip binary/media extensions
-  if (SKIP_EXTENSIONS.has(ext)) return true
-
-  // Only keep known useful extensions
-  if (!KEEP_EXTENSIONS.has(ext)) return true
+  if (SKIP_FILENAMES.has(fileName))                    return true
+  if (SKIP_EXTENSIONS.has(ext))                        return true
+  if (!KEEP_EXTENSIONS.has(ext))                       return true
 
   return false
+}
+
+// ─────────────────────────────────────────────────────────────
+// GITHUB AUTH HEADERS
+// Priority: per-user OAuth token → server env token → none
+// Per-user token gives 5 000 req/hr; no token gives only 60/hr.
+// ─────────────────────────────────────────────────────────────
+
+async function buildHeaders(userId: string): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    'Accept':     'application/vnd.github.v3+json',
+    'User-Agent': 'AdvancedRAG/1.0',
+  }
+
+  // 1. Try the OAuth token the user connected via /github/start
+  try {
+    const userToken = await getUserGithubToken(userId)
+    if (userToken) {
+      headers['Authorization'] = `Bearer ${userToken}`
+      return headers
+    }
+  } catch {
+    // getUserGithubToken threw — fall through to env token
+  }
+
+  // 2. Fall back to server-level token (still 5 000/hr but shared across all users)
+  if (process.env.GITHUB_TOKEN) {
+    headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`
+  }
+
+  // 3. No token — 60 req/hr, warn loudly
+  if (!headers['Authorization']) {
+    console.warn(
+      '⚠️  No GitHub token available for this request. ' +
+      'Rate limit is 60 req/hr. Ask the user to connect their GitHub account.'
+    )
+  }
+
+  return headers
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -113,44 +153,30 @@ export function parseGithubUrl(url: string): { owner: string; repo: string } | n
 
 // ─────────────────────────────────────────────────────────────
 // FETCH REPO TREE
-// Uses GitHub API — no auth needed for public repos
+// One API call returns every file path + sha in the repo.
+// We filter BEFORE fetching any content → zero wasted calls.
 // ─────────────────────────────────────────────────────────────
 
 async function fetchRepoTree(
-  owner: string,
-  repo:  string
+  owner:   string,
+  repo:    string,
+  headers: Record<string, string>
 ): Promise<RepoFile[]> {
 
-  const url      = `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
-  const headers: Record<string, string> = {
-    'Accept':     'application/vnd.github.v3+json',
-    'User-Agent': 'AdvancedRAG/1.0',
-  }
-
-  // Use token if available (raises rate limit from 60 to 5000/hr)
-  if (process.env.GITHUB_TOKEN) {
-    headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`
-  }
-
+  const url = `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
   const res = await fetch(url, { headers })
 
-  if (res.status === 404) {
-    throw new Error('Repository not found or is private')
-  }
-  if (res.status === 403) {
-    throw new Error('GitHub API rate limit exceeded. Try again in an hour.')
-  }
-  if (!res.ok) {
-    throw new Error(`GitHub API error: ${res.status}`)
-  }
+  if (res.status === 404) throw new Error('Repository not found or is private')
+  if (res.status === 403) throw new Error('GitHub API rate limit exceeded. Try again in an hour.')
+  if (!res.ok)            throw new Error(`GitHub API error: ${res.status}`)
 
   const data = await res.json() as {
-    tree:     { path: string; type: string; size?: number }[]
+    tree:      { path: string; type: string; size?: number; sha: string }[]
     truncated: boolean
   }
 
   if (data.truncated) {
-    console.warn('⚠️  Repo tree was truncated by GitHub (too many files)')
+    console.warn('⚠️  Repo tree was truncated by GitHub (>100 000 files)')
   }
 
   return data.tree
@@ -159,78 +185,92 @@ async function fetchRepoTree(
       path: item.path,
       type: 'blob' as const,
       size: item.size ?? 0,
+      sha:  item.sha,
     }))
 }
 
 // ─────────────────────────────────────────────────────────────
-// FETCH FILE CONTENT
+// FETCH FILE CONTENT — Git Blob API
+//
+// WHY GIT BLOB API instead of /contents/:path?
+//
+// /contents/:path  → 1 request per file, returns base64 in JSON,
+//                    counts against REST rate limit for EVERY file.
+//
+// /git/blobs/:sha  → 1 request per file (same count), BUT:
+//   • Uses the sha we already got from the tree (no path lookup)
+//   • Supports `application/vnd.github.raw` → returns raw bytes,
+//     skipping base64 decode overhead on both sides
+//   • Works correctly for any file size up to 100 MB
+//   • No redirect / double-request for larger files
+//
+// Net result: same request budget, less processing, more reliable.
 // ─────────────────────────────────────────────────────────────
 
-async function fetchFileContent(
-  owner:    string,
-  repo:     string,
-  filePath: string
+async function fetchBlob(
+  owner:   string,
+  repo:    string,
+  sha:     string,
+  headers: Record<string, string>
 ): Promise<string | null> {
 
-  const url     = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`
-  const headers: Record<string, string> = {
-    'Accept':     'application/vnd.github.v3+json',
-    'User-Agent': 'AdvancedRAG/1.0',
-  }
+  const url = `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`
 
-  if (process.env.GITHUB_TOKEN) {
-    headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`
-  }
-
-  const res = await fetch(url, { headers })
+  // Ask for raw bytes — avoids base64 encode/decode round-trip
+  const res = await fetch(url, {
+    headers: {
+      ...headers,
+      'Accept': 'application/vnd.github.raw',
+    },
+  })
 
   if (!res.ok) {
-    console.warn(`  ⚠️  Could not fetch ${filePath}: ${res.status}`)
+    console.warn(`  ⚠️  Blob ${sha} fetch failed: ${res.status}`)
     return null
   }
 
-  const data = await res.json() as { content?: string; encoding?: string }
+  const text = await res.text()
 
-  if (!data.content || data.encoding !== 'base64') return null
+  // Skip binary-looking content
+  if (text.includes('\x00')) return null
 
-  // Decode base64 content
-  const decoded = Buffer.from(data.content, 'base64').toString('utf-8')
-
-  // Final check — skip if content looks binary
-  if (decoded.includes('\x00')) return null
-
-  return decoded
+  return text
 }
 
 // ─────────────────────────────────────────────────────────────
-// BATCH FETCH — fetch files in parallel batches
+// BATCH FETCH — parallel with concurrency cap
+//
+// Concurrency of 8 keeps us well inside GitHub's burst allowance
+// while still being ~8× faster than serial fetching.
 // ─────────────────────────────────────────────────────────────
 
 async function fetchFilesInBatches(
-  owner:    string,
-  repo:     string,
-  files:    RepoFile[],
-  batchSize: number = 5
+  owner:       string,
+  repo:        string,
+  files:       RepoFile[],
+  headers:     Record<string, string>,
+  concurrency  = 8
 ): Promise<{ file: RepoFile; content: string }[]> {
 
   const results: { file: RepoFile; content: string }[] = []
+  const total   = Math.ceil(files.length / concurrency)
 
-  for (let i = 0; i < files.length; i += batchSize) {
-    const batch   = files.slice(i, i + batchSize)
+  for (let i = 0; i < files.length; i += concurrency) {
+    const batch   = files.slice(i, i + concurrency)
     const fetched = await Promise.all(
       batch.map(async (file) => {
-        const content = await fetchFileContent(owner, repo, file.path)
+        if (!file.sha) return null
+        const content = await fetchBlob(owner, repo, file.sha, headers)
         return content ? { file, content } : null
       })
     )
 
     fetched.forEach(r => { if (r) results.push(r) })
+    console.log(`  📥 Fetched batch ${Math.floor(i / concurrency) + 1}/${total}`)
 
-    console.log(`  📥 Fetched batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(files.length / batchSize)}`)
-
-    // Small delay between batches to respect rate limits
-    if (i + batchSize < files.length) {
-      await new Promise(r => setTimeout(r, 300))
+    // Small breathing room between batches
+    if (i + concurrency < files.length) {
+      await new Promise(r => setTimeout(r, 200))
     }
   }
 
@@ -238,92 +278,7 @@ async function fetchFilesInBatches(
 }
 
 // ─────────────────────────────────────────────────────────────
-// MAIN — INDEX A REPO
-// ─────────────────────────────────────────────────────────────
-
-export async function indexGithubRepo(
-  repoUrl: string,
-  userId:  string
-): Promise<IndexResult> {
-
-  // 1. Parse URL
-  const parsed = parseGithubUrl(repoUrl)
-  if (!parsed) throw new Error('Invalid GitHub URL')
-
-  const { owner, repo } = parsed
-  const repoName        = `${owner}/${repo}`
-
-  console.log(`\n🐙 Indexing GitHub repo: ${repoName}`)
-
-  // 2. Fetch tree
-  console.log('  📁 Fetching repo tree...')
-  const allFiles = await fetchRepoTree(owner, repo)
-  console.log(`  📁 Total files in repo: ${allFiles.length}`)
-
-  // 3. Filter files
-  const validFiles  = allFiles.filter(f => {
-    if (shouldSkipPath(f.path))          return false
-    if ((f.size ?? 0) > MAX_FILE_SIZE)   return false
-    return true
-  })
-
-  const skippedCount = allFiles.length - validFiles.length
-  console.log(`  ✅ Files to index: ${validFiles.length} (skipped ${skippedCount})`)
-
-  if (validFiles.length === 0) {
-    throw new Error('No indexable files found in this repository')
-  }
-
-  // 4. Fetch file contents in batches
-  console.log('  📥 Fetching file contents...')
-  const fileContents = await fetchFilesInBatches(owner, repo, validFiles)
-
-  // 5. Chunk all files
-  console.log('  ✂️  Chunking files...')
-  const allChunks: { text: string; filePath: string }[] = []
-
-  for (const { file, content } of fileContents) {
-    const ext    = '.' + file.path.split('.').pop()?.toLowerCase()
-    const chunks = chunkCodeContent(content, file.path, ext)
-    chunks.forEach(text => allChunks.push({ text, filePath: file.path }))
-  }
-
-  console.log(`  ✂️  Total chunks: ${allChunks.length}`)
-
-  if (allChunks.length === 0) {
-    throw new Error('No content could be extracted from this repository')
-  }
-
-  // 6. Embed + store in Pinecone
-  console.log('  🔢 Embedding chunks...')
-  const ts         = Date.now()
-  const source     = `github:${repoName}`
-  const texts      = allChunks.map(c => c.text)
-  const embedded   = await embedChunks(texts)
-
-  // Add filePath to each embedded chunk metadata
-  const embeddedWithMeta = embedded.map((e, i) => ({
-    ...e,
-    filePath: allChunks[i]?.filePath ?? '',
-  }))
-
-  // Store with rich metadata
-  await storeRepoInPinecone(embeddedWithMeta, userId, ts, source, repoName)
-
-  console.log(`  ✅ Indexed ${allChunks.length} chunks from ${fileContents.length} files`)
-
-  return {
-    repoName,
-    fileCount:    fileContents.length,
-    chunkCount:   allChunks.length,
-    skippedCount,
-    tree:         validFiles,
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
 // STORE REPO CHUNKS IN PINECONE
-// Same as storeInPinecone but with extra filePath metadata
 // ─────────────────────────────────────────────────────────────
 
 async function storeRepoInPinecone(
@@ -337,7 +292,6 @@ async function storeRepoInPinecone(
   const pinecone     = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! })
   const index        = pinecone.index('rag-index')
 
-  // Store in batches of 100 (Pinecone upsert limit)
   const BATCH = 100
 
   for (let i = 0; i < embeddedChunks.length; i += BATCH) {
@@ -359,5 +313,89 @@ async function storeRepoInPinecone(
 
     await index.upsert({ records: vectors })
     console.log(`  📌 Stored batch ${Math.floor(i / BATCH) + 1}/${Math.ceil(embeddedChunks.length / BATCH)}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// MAIN — INDEX A REPO
+// ─────────────────────────────────────────────────────────────
+
+export async function indexGithubRepo(
+  repoUrl: string,
+  userId:  string
+): Promise<IndexResult> {
+
+  const parsed = parseGithubUrl(repoUrl)
+  if (!parsed) throw new Error('Invalid GitHub URL')
+
+  const { owner, repo } = parsed
+  const repoName        = `${owner}/${repo}`
+
+  console.log(`\n🐙 Indexing GitHub repo: ${repoName}`)
+
+  // Build auth headers once — reused for every request in this job
+  const headers = await buildHeaders(userId)
+  const isAuthed = Boolean(headers['Authorization'])
+  console.log(`  🔑 Auth: ${isAuthed ? 'token present (5 000 req/hr)' : 'no token (60 req/hr)'}`)
+
+  // 1. Fetch full tree (1 API call regardless of repo size)
+  console.log('  📁 Fetching repo tree...')
+  const allFiles = await fetchRepoTree(owner, repo, headers)
+  console.log(`  📁 Total blobs in repo: ${allFiles.length}`)
+
+  // 2. Filter before fetching any content
+  //    node_modules and other skip dirs are eliminated HERE — not after fetching
+  const validFiles   = allFiles.filter(f => !shouldSkipPath(f.path, f.size))
+  const skippedCount = allFiles.length - validFiles.length
+
+  console.log(`  ✅ Files to fetch: ${validFiles.length}  (skipped ${skippedCount} — incl. node_modules, binaries, lock files)`)
+
+  if (validFiles.length === 0) {
+    throw new Error('No indexable files found in this repository')
+  }
+
+  // 3. Fetch content via Git Blob API (parallel batches)
+  console.log('  📥 Fetching file contents via Git Blob API...')
+  const fileContents = await fetchFilesInBatches(owner, repo, validFiles, headers)
+
+  // 4. Chunk all files
+  console.log('  ✂️  Chunking files...')
+  const allChunks: { text: string; filePath: string }[] = []
+
+  for (const { file, content } of fileContents) {
+    const dotIdx = file.path.lastIndexOf('.')
+    const ext    = dotIdx !== -1 ? file.path.slice(dotIdx).toLowerCase() : ''
+    const chunks = chunkCodeContent(content, file.path, ext)
+    chunks.forEach(text => allChunks.push({ text, filePath: file.path }))
+  }
+
+  console.log(`  ✂️  Total chunks: ${allChunks.length}`)
+
+  if (allChunks.length === 0) {
+    throw new Error('No content could be extracted from this repository')
+  }
+
+  // 5. Embed + store
+  console.log('  🔢 Embedding chunks...')
+  const ts       = Date.now()
+  const source   = `github:${repoName}`
+  const texts    = allChunks.map(c => c.text)
+  const embedded = await embedChunks(texts)
+
+  const embeddedWithMeta = embedded.map((e, i) => ({
+    ...e,
+    filePath: allChunks[i]?.filePath ?? '',
+  }))
+
+  await storeRepoInPinecone(embeddedWithMeta, userId, ts, source, repoName)
+
+  console.log(`  ✅ Done. ${allChunks.length} chunks from ${fileContents.length} files`)
+
+  return {
+    repoName,
+    fileCount:    fileContents.length,
+    chunkCount:   allChunks.length,
+    skippedCount,
+    tree:         validFiles,
   }
 }
