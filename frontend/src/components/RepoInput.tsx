@@ -8,6 +8,7 @@ interface Props {
   onClose:     () => void
 }
 
+
 // Validate GitHub URL on frontend before sending
 function validateGithubUrl(url: string): string | null {
   if (!url.trim()) return 'Please enter a GitHub URL'
