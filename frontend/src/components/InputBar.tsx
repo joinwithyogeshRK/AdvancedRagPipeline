@@ -58,7 +58,6 @@ export const InputBar = ({
 
   const handleIndexRepo = (url: string) => {
     onIndexRepo(url)
-    // Don't close — let parent control close after success
   }
 
   return (
@@ -155,7 +154,7 @@ export const InputBar = ({
         )}
       </AnimatePresence>
 
-      {/* Document selector */}
+      {/* Document selector — fixed label + horizontally scrollable pills */}
       <AnimatePresence>
         {signedIn && hasDocs && (
           <motion.div
@@ -165,61 +164,65 @@ export const InputBar = ({
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.25 }}
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-              stroke="#6b6b78" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            >
-              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-            </svg>
+            {/* Fixed left: icon + label + loading */}
+            <div style={s.docSelectorLeft}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                stroke="#6b6b78" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              <span style={s.docLabel}>Search in:</span>
+              {loadingDocs && (
+                <span style={{ fontSize: "9px", color: "#3a3a48", fontFamily: "'DM Mono',monospace" }}>
+                  loading…
+                </span>
+              )}
+            </div>
 
-            <span style={s.docLabel}>Search in:</span>
-
-            {loadingDocs && (
-              <span style={{ fontSize: "9px", color: "#3a3a48", fontFamily: "'DM Mono',monospace" }}>
-                loading…
-              </span>
-            )}
-
-            <motion.button type="button"
-              onClick={() => onSourceChange("all")}
-              style={{ ...s.docPill, ...(selectedSource === "all" ? s.docPillActive : {}) }}
-              whileHover={{ borderColor: "#c9a84c66" }}
-              whileTap={{ scale: 0.95 }}
-            >
-              All documents
-            </motion.button>
-
-            {documents.map((doc) => (
-              <motion.button
-                key={doc.source}
-                type="button"
-                onClick={() => onSourceChange(selectedSource === doc.source ? "all" : doc.source)}
-                style={{ ...s.docPill, ...(selectedSource === doc.source ? s.docPillActive : {}) }}
+            {/* Scrollable pills */}
+            <div style={s.docPillsScroll}>
+              <motion.button type="button"
+                onClick={() => onSourceChange("all")}
+                style={{ ...s.docPill, ...(selectedSource === "all" ? s.docPillActive : {}) }}
                 whileHover={{ borderColor: "#c9a84c66" }}
                 whileTap={{ scale: 0.95 }}
-                title={doc.source}
               >
-                {/* Different icon for github sources */}
-                {doc.source.startsWith('github:') ? (
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-                  </svg>
-                ) : (
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-                  >
-                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                )}
-                {doc.source.startsWith('github:')
-                  ? doc.source.replace('github:', '').slice(0, 20)
-                  : doc.source.length > 20
-                    ? doc.source.slice(0, 17) + "..."
-                    : doc.source
-                }
+                All documents
               </motion.button>
-            ))}
 
+              {documents.map((doc) => (
+                <motion.button
+                  key={doc.source}
+                  type="button"
+                  onClick={() => onSourceChange(selectedSource === doc.source ? "all" : doc.source)}
+                  style={{ ...s.docPill, ...(selectedSource === doc.source ? s.docPillActive : {}) }}
+                  whileHover={{ borderColor: "#c9a84c66" }}
+                  whileTap={{ scale: 0.95 }}
+                  title={doc.source}
+                >
+                  {doc.source.startsWith('github:') ? (
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                  ) : (
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+                      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+                    >
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  )}
+                  {doc.source.startsWith('github:')
+                    ? doc.source.replace('github:', '').slice(0, 20)
+                    : doc.source.length > 20
+                      ? doc.source.slice(0, 17) + "..."
+                      : doc.source
+                  }
+                </motion.button>
+              ))}
+            </div>
+
+            {/* Fixed right: filtered badge */}
             <AnimatePresence>
               {selectedSource !== "all" && (
                 <motion.span style={s.filterActive}
@@ -479,11 +482,47 @@ const s: Record<string, React.CSSProperties> = {
   indexingBadge:  { display: "flex", alignItems: "center", gap: "5px", fontSize: "9px", color: "#818cf8", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em" },
   recDot:         { display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#f87171", flexShrink: 0 },
   errBanner:      { fontSize: "10px", color: "#f87171", background: "#f871710d", border: "1px solid #f8717133", borderRadius: "8px", padding: "5px 10px", fontFamily: "'DM Mono',monospace", letterSpacing: "0.04em" },
-  docSelectorRow: { display: "flex", alignItems: "center", gap: "8px", padding: "6px 8px", borderRadius: "10px", background: "#0e0e14", border: "1px solid #1a1a24", flexWrap: "wrap" },
-  docLabel:       { fontSize: "9px", color: "#6b6b78", letterSpacing: "0.08em", fontFamily: "'DM Mono',monospace", textTransform: "uppercase" as const, flexShrink: 0 },
+
+  // Outer row: fixed label on left, scrollable pills in middle, badge on right
+  docSelectorRow: {
+    display:     "flex",
+    alignItems:  "center",
+    gap:         "8px",
+    padding:     "6px 8px",
+    borderRadius: "10px",
+    background:  "#0e0e14",
+    border:      "1px solid #1a1a24",
+    overflow:    "hidden",   // clip the scroll container
+    minWidth:    0,
+  },
+  // Fixed left section
+  docSelectorLeft: {
+    display:    "flex",
+    alignItems: "center",
+    gap:        "6px",
+    flexShrink: 0,
+  },
+  docLabel: { fontSize: "9px", color: "#6b6b78", letterSpacing: "0.08em", fontFamily: "'DM Mono',monospace", textTransform: "uppercase" as const, flexShrink: 0 },
+
+  // Horizontally scrollable pills strip
+  docPillsScroll: {
+    display:          "flex",
+    alignItems:       "center",
+    gap:              "6px",
+    overflowX:        "auto",
+    overflowY:        "hidden",
+    flex:             1,
+    minWidth:         0,
+    scrollbarWidth:   "none",           // Firefox — hide scrollbar
+    msOverflowStyle: "none" as unknown as React.CSSProperties["msOverflowStyle"],  // IE/Edge
+    // WebKit scrollbar hidden via global CSS ideally; inline not possible
+    paddingBottom:    "2px",            // slight room so focus rings don't clip
+  },
+
   docPill:        { display: "flex", alignItems: "center", gap: "4px", padding: "3px 9px", borderRadius: "6px", border: "1px solid #222230", background: "transparent", color: "#6b6b78", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", flexShrink: 0 },
   docPillActive:  { borderColor: "#c9a84c66", background: "#c9a84c11", color: "#c9a84c" },
-  filterActive:   { fontSize: "9px", color: "#c9a84c88", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", marginLeft: "auto" },
+  filterActive:   { fontSize: "9px", color: "#c9a84c88", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", flexShrink: 0 },
+
   inputWrap:      { display: "flex", alignItems: "center", gap: "10px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "10px 12px", transition: "box-shadow 0.2s" },
   signInGate:     { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
   attachBtn:      { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", userSelect: "none" as const, transition: "all 0.2s" },
