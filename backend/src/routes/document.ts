@@ -89,6 +89,7 @@ router.delete("/delete", async (req, res) => {
     console.log(`  📋 Found ${ids.length} vectors to delete for source: ${source}`)
 
     if (ids.length === 0) {
+      
       // Nothing to delete — still return success (idempotent)
       res.json({ success: true, source, deletedCount: 0 })
       return
