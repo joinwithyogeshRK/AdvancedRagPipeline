@@ -1,66 +1,73 @@
-import { Router } from "express"
-import { Pinecone } from "@pinecone-database/pinecone"
+// backend/src/routes/document.ts
+import { Router, type Request, type Response } from "express"
 import { requireClerkSession } from "../middleware/requireClerk.js"
+import { Pinecone } from "@pinecone-database/pinecone"
+import { createClient } from "@supabase/supabase-js"
 
-const router   = Router()
+const router = Router()
+
+// ── Supabase client ────────────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+// ── Pinecone client ────────────────────────────────────────────────────────
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! })
 const index    = pinecone.index("rag-index")
 
 router.use(requireClerkSession)
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // GET /documents/list
-// Queries Pinecone metadata to return every unique source the
-// signed-in user has uploaded, newest first.
-// ─────────────────────────────────────────────────────────────
-router.get("/list", async (req, res) => {
+// Source of truth is Supabase — faster, cheaper, no Pinecone query credits.
+// ─────────────────────────────────────────────────────────────────────────
+router.get("/list", async (req: Request, res: Response) => {
   try {
     const userId = req.supabaseUserId!
 
-    const results = await index.query({
-      vector:          new Array(1024).fill(0),
-      topK:            100,
-      includeMetadata: true,
-      filter:          { userId: { $eq: userId } },
+    const { data, error } = await supabase
+      .from("documents")
+      .select("source, uploaded_at")
+      .eq("user_id", userId)
+      .order("uploaded_at", { ascending: false })
+
+    if (error) throw error
+
+    // Deduplicate by source — keep the most-recent entry per source
+    const seen   = new Set<string>()
+    const unique = (data ?? []).filter((row: any) => {
+      if (seen.has(row.source)) return false
+      seen.add(row.source)
+      return true
     })
 
-    const sourceMap = new Map<string, number>()
-
-    results.matches?.forEach(m => {
-      const source     = m.metadata?.source     as string | undefined
-      const uploadedAt = m.metadata?.uploadedAt as number | undefined
-      if (source && uploadedAt && !sourceMap.has(source)) {
-        sourceMap.set(source, uploadedAt)
-      }
+    res.json({
+      documents: unique.map((row: any) => ({
+        source:     row.source,
+        uploadedAt: new Date(row.uploaded_at).getTime(),
+      })),
     })
-
-    const documents = Array.from(sourceMap.entries())
-      .map(([source, uploadedAt]) => ({ source, uploadedAt }))
-      .sort((a, b) => b.uploadedAt - a.uploadedAt)
-
-    console.log(`✅ Documents list: ${documents.length} unique sources for user`)
-    res.json({ documents })
 
   } catch (err) {
-    console.error("Failed to list documents:", err)
+    console.error("GET /documents/list error:", err)
     res.status(500).json({ error: "Failed to fetch documents" })
   }
 })
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────
 // DELETE /documents/delete
 // Body: { source: string }
 //
-// Finds every Pinecone vector that matches (userId + source)
-// and deletes them all.  No Supabase involvement — vectors are
-// the single source of truth for document storage here.
-//
-// Strategy:
-//   1. Query with a zero-vector + metadata filter to collect IDs
-//      (topK 10 000 to grab as many as possible in one shot)
-//   2. Delete those IDs in batches of 1 000 (Pinecone hard limit)
-// ─────────────────────────────────────────────────────────────
-router.delete("/delete", async (req, res) => {
+// Steps:
+//   1. Query Pinecone with zero-vector + metadata filter to collect IDs
+//   2. Delete by IDs in batches of 1000
+//      FIX: serverless Pinecone requires index.deleteMany({ ids: [...] })
+//           NOT index.deleteMany([...]) — passing a plain array causes
+//           PineconeBadRequestError on serverless indexes
+//   3. Delete rows from Supabase
+// ─────────────────────────────────────────────────────────────────────────
+router.delete("/delete", async (req: Request, res: Response) => {
   try {
     const userId = req.supabaseUserId!
     const { source } = req.body as { source?: string }
@@ -72,9 +79,9 @@ router.delete("/delete", async (req, res) => {
 
     console.log(`🗑  Delete request — user: ${userId}  source: ${source}`)
 
-    // Step 1 — collect all matching vector IDs
+    // ── 1. Collect matching Pinecone vector IDs ──────────────────────────
     const queryRes = await index.query({
-      vector:          new Array(1024).fill(0),
+      vector:          new Array(1024).fill(0),   // zero vector — only care about metadata filter
       topK:            10000,
       includeMetadata: false,
       filter: {
@@ -88,28 +95,57 @@ router.delete("/delete", async (req, res) => {
     const ids = (queryRes.matches ?? []).map(m => m.id)
     console.log(`  📋 Found ${ids.length} vectors to delete for source: ${source}`)
 
-    if (ids.length === 0) {
-      
-      // Nothing to delete — still return success (idempotent)
-      res.json({ success: true, source, deletedCount: 0 })
+    // ── 2. Delete from Pinecone in batches ──────────────────────────────
+    if (ids.length > 0) {
+      const BATCH = 1000
+
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const batch = ids.slice(i, i + BATCH)
+
+        // ✅ CORRECT for serverless Pinecone — object with ids array
+        // ❌ WRONG (PineconeBadRequestError) — index.deleteMany(batch)
+        await index.deleteMany({ ids: batch })
+
+        console.log(
+          `  🗑  Deleted batch ${Math.floor(i / BATCH) + 1}` +
+          `/${Math.ceil(ids.length / BATCH)} (${batch.length} vectors)`
+        )
+      }
+    }
+
+    console.log(`  ✅ Pinecone delete complete — ${ids.length} vectors removed`)
+
+    // ── 3. Delete from Supabase ──────────────────────────────────────────
+    const { error: supabaseError, count } = await supabase
+      .from("documents")
+      .delete({ count: "exact" })
+      .eq("user_id", userId)
+      .eq("source",  source)
+
+    if (supabaseError) {
+      // Pinecone already cleaned — partial success, don't 500
+      console.error("  ❌ Supabase delete error:", supabaseError)
+      res.status(207).json({
+        success:              false,
+        message:              "Deleted from Pinecone but Supabase deletion failed",
+        supabaseError:        supabaseError.message,
+        pineconeDeletedCount: ids.length,
+      })
       return
     }
 
-    // Step 2 — delete in batches of 1 000
-    const BATCH = 1000
-    for (let i = 0; i < ids.length; i += BATCH) {
-      const batch = ids.slice(i, i + BATCH)
-      await index.deleteMany(batch)
-      console.log(
-        `  🗑  Deleted batch ${Math.floor(i / BATCH) + 1}/${Math.ceil(ids.length / BATCH)} (${batch.length} vectors)`
-      )
-    }
+    console.log(`  ✅ Supabase deleted ${count ?? "?"} rows for source: ${source}`)
+    console.log(`  ✅ Delete complete for source: ${source}`)
 
-    console.log(`  ✅ Delete complete — ${ids.length} vectors removed for source: ${source}`)
-    res.json({ success: true, source, deletedCount: ids.length })
+    res.json({
+      success:                true,
+      source,
+      supabaseRowsDeleted:    count ?? 0,
+      pineconeVectorsDeleted: ids.length,
+    })
 
   } catch (err) {
-    console.error("Failed to delete document:", err)
+    console.error("DELETE /documents/delete error:", err)
     res.status(500).json({ error: "Failed to delete document" })
   }
 })
