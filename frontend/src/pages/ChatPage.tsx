@@ -128,6 +128,25 @@ const ChatPage = () => {
     } catch {}
   }
 
+  // ── Delete a document / repo source ────────────────────────
+  // Called by InputBar when user confirms deletion in the modal.
+  // Removes the source from Pinecone (vectors) + Supabase (rows),
+  // then updates local state so the pill disappears immediately.
+  const handleDeleteSource = async (source: string) => {
+    try {
+      await axios.delete(`${API}/documents/delete`, {
+        headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+        data:    { source },
+      })
+      // Optimistically remove from local state
+      setDocuments((prev) => prev.filter((d) => d.source !== source))
+    } catch (err) {
+      console.error("Delete source failed:", err)
+      // Re-throw so the modal can show a deleting→error state if needed
+      throw err
+    }
+  }
+
   // ── GitHub repo indexing ────────────────────────────────────
   const handleIndexRepo = async (repoUrl: string) => {
     if (!signedIn || isIndexing) return
@@ -142,13 +161,9 @@ const ChatPage = () => {
 
       const { repoName, fileCount, chunkCount } = res.data
 
-      // Refresh documents so repo appears in selector
       await fetchDocuments()
-
-      // Auto-select the new repo in the filter
       setSelectedSource(`github:${repoName}`)
 
-      // Show success in chat as a system message
       typewriterStream(
         `✅ Repository indexed successfully!\n\n` +
         `**${repoName}** is ready to explore.\n` +
@@ -358,6 +373,7 @@ const ChatPage = () => {
           onRecordStart={startRecording}
           onRecordStop={stopRecording}
           onIndexRepo={handleIndexRepo}
+          onDeleteSource={handleDeleteSource}   // ← NEW
         />
       </div>
     </div>

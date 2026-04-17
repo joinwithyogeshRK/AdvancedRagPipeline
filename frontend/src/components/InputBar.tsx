@@ -36,105 +36,234 @@ interface Props {
   onFileChange:   (e: React.ChangeEvent<HTMLInputElement>) => void
   onRemoveFile:   () => void
   onIndexRepo:    (url: string) => void
+  onDeleteSource: (source: string) => Promise<void>   // NEW
   historyLength:  number
 }
 
+// ── Delete confirmation modal ──────────────────────────────────────────────
+const DeleteModal = ({
+  source, onConfirm, onCancel, deleting,
+}: {
+  source: string; onConfirm: () => void; onCancel: () => void; deleting: boolean
+}) => {
+  const isRepo    = source.startsWith("github:")
+  const label     = isRepo ? source.replace("github:", "") : source
+  const typeLabel = isRepo ? "repository" : "document"
+
+  return (
+    <motion.div style={s.modalOverlay}
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onCancel}
+    >
+      <motion.div style={s.modal}
+        initial={{ opacity: 0, scale: 0.92, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.92, y: 12 }}
+        transition={{ duration: 0.18 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={s.modalIcon}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+        </div>
+        <div style={s.modalTitle}>Delete {typeLabel}?</div>
+        <div style={s.modalSource}>{label}</div>
+        <div style={s.modalWarning}>
+          All embeddings and chunks for this {typeLabel} will be permanently removed
+          from Pinecone and Supabase. This cannot be undone.
+        </div>
+        <div style={s.modalActions}>
+          <motion.button type="button" onClick={onCancel} style={s.modalCancel}
+            whileHover={{ borderColor: "#3a3a50" }} whileTap={{ scale: 0.96 }} disabled={deleting}>
+            Cancel
+          </motion.button>
+          <motion.button type="button" onClick={onConfirm}
+            style={{ ...s.modalDelete, ...(deleting ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
+            whileHover={!deleting ? { background: "#ef444433" } : {}}
+            whileTap={!deleting ? { scale: 0.96 } : {}} disabled={deleting}>
+            {deleting ? (
+              <motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 0.8 }}>
+                Deleting…
+              </motion.span>
+            ) : (
+              <>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14H6L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4h6v2"/>
+                </svg>
+                Delete permanently
+              </>
+            )}
+          </motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ── Individual source pill with × delete button ────────────────────────────
+const SourcePill = ({
+  source, isActive, onSelect, onDelete,
+}: {
+  source: string; isActive: boolean; onSelect: () => void; onDelete: () => void
+}) => {
+  const isRepo = source.startsWith("github:")
+  const label  = isRepo
+    ? source.replace("github:", "").slice(0, 22)
+    : source.length > 22 ? source.slice(0, 19) + "…" : source
+
+  return (
+    <motion.div
+      style={{ ...s.sourcePill, ...(isActive ? s.sourcePillActive : {}) }}
+      whileHover={!isActive ? { borderColor: "#c9a84c44" } : {}}
+      layout
+    >
+      <button type="button" onClick={onSelect} style={{
+        ...s.pillLabel,
+        color: isActive ? "#c9a84c" : "#6b6b78",
+      }} title={source}>
+        {isRepo ? (
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+        ) : (
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink: 0 }}>
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        )}
+        {label}
+      </button>
+      <motion.button type="button"
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        style={s.pillDelete}
+        whileHover={{ color: "#f87171", background: "#f871710d" }}
+        whileTap={{ scale: 0.85 }}
+        title="Remove this source"
+      >
+        <svg width="7" height="7" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="3.5" strokeLinecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </motion.button>
+    </motion.div>
+  )
+}
+
+// ── Horizontal scroll strip ────────────────────────────────────────────────
+const ScrollStrip = ({
+  label, icon, items, selectedSource, onSelect, onDelete,
+}: {
+  label: string; icon: React.ReactNode; items: Document[]
+  selectedSource: string; onSelect: (s: string) => void; onDelete: (s: string) => void
+}) => (
+  <div style={s.strip}>
+    <div style={s.stripLeft}>
+      {icon}
+      <span style={s.stripLabelText}>{label}</span>
+    </div>
+    <div style={s.stripScroll}>
+      {items.map((doc) => (
+        <SourcePill
+          key={doc.source}
+          source={doc.source}
+          isActive={selectedSource === doc.source}
+          onSelect={() => onSelect(selectedSource === doc.source ? "all" : doc.source)}
+          onDelete={() => onDelete(doc.source)}
+        />
+      ))}
+    </div>
+  </div>
+)
+
+// ── Main InputBar ──────────────────────────────────────────────────────────
 export const InputBar = ({
   message, file, fileName, charCount, chatId, isStreaming,
   focused, signedIn, inputRef, documents, selectedSource, loadingDocs,
   isRecording, isTranscribing, recError, isIndexing,
   onRecordStart, onRecordStop, onSourceChange, onChange,
   onFocus, onBlur, onSend, onStop, onFileChange, onRemoveFile,
-  onIndexRepo, historyLength,
+  onIndexRepo, onDeleteSource, historyLength,
 }: Props) => {
-  const { openSignIn }     = useClerk()
-  const [showRepo, setShowRepo] = useState(false)
+  const { openSignIn } = useClerk()
+  const [showRepo,     setShowRepo]     = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [deleting,     setDeleting]     = useState(false)
 
   const canChat     = signedIn && !isStreaming && !isRecording && !isTranscribing
   const sendEnabled = signedIn && message.trim().length > 0 && !isStreaming && !isRecording && !isTranscribing
+  const pdfDocs     = documents.filter(d => !d.source.startsWith("github:"))
+  const repoDocs    = documents.filter(d =>  d.source.startsWith("github:"))
   const hasDocs     = documents.length > 0
 
   const promptSignIn = () => { void openSignIn() }
 
-  const handleIndexRepo = (url: string) => {
-    onIndexRepo(url)
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await onDeleteSource(deleteTarget)
+      if (selectedSource === deleteTarget) onSourceChange("all")
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
+    }
   }
 
   return (
-    <motion.div
-      style={s.inputSection}
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
+    <motion.div style={s.inputSection}
+      initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
     >
+      {/* Delete modal */}
+      <AnimatePresence>
+        {deleteTarget && (
+          <DeleteModal
+            source={deleteTarget}
+            onConfirm={handleDeleteConfirm}
+            onCancel={() => !deleting && setDeleteTarget(null)}
+            deleting={deleting}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Stats */}
       <div style={s.statsRow}>
-        <span style={s.stat}>
-          <span style={{ color: "#c9a84c" }}>{historyLength}</span> exchanges
-        </span>
+        <span style={s.stat}><span style={{ color: "#c9a84c" }}>{historyLength}</span> exchanges</span>
         <span style={s.statDivider}>·</span>
-        <span style={s.stat}>
-          <span style={{ color: file ? "#4ade80" : "#6b6b78" }}>
-            {file ? "PDF attached" : "No document"}
-          </span>
-        </span>
+        <span style={s.stat}><span style={{ color: file ? "#4ade80" : "#6b6b78" }}>{file ? "PDF attached" : "No document"}</span></span>
         <span style={s.statDivider}>·</span>
-        <span style={s.stat}>
-          <span style={{ color: charCount > 200 ? "#f87171" : "#6b6b78" }}>
-            {charCount}
-          </span> chars
-        </span>
+        <span style={s.stat}><span style={{ color: charCount > 200 ? "#f87171" : "#6b6b78" }}>{charCount}</span> chars</span>
         <span style={s.statDivider}>·</span>
-        <span style={s.stat}>
-          <span style={{ color: chatId ? "#c9a84c" : "#6b6b78" }}>
-            {chatId ? "Chat active" : "New session"}
-          </span>
-        </span>
+        <span style={s.stat}><span style={{ color: chatId ? "#c9a84c" : "#6b6b78" }}>{chatId ? "Chat active" : "New session"}</span></span>
 
-        {/* Recording badge */}
         <AnimatePresence>
           {(isRecording || isTranscribing) && (
-            <motion.span
-              style={s.recBadge}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-            >
-              {isRecording ? (
-                <>
-                  <motion.span style={s.recDot}
-                    animate={{ opacity: [1, 0.2, 1] }}
-                    transition={{ repeat: Infinity, duration: 1 }}
-                  />
-                  recording…
-                </>
-              ) : (
-                <>
-                  <motion.span style={{ ...s.recDot, background: "#c9a84c" }}
-                    animate={{ opacity: [1, 0.2, 1] }}
-                    transition={{ repeat: Infinity, duration: 0.8 }}
-                  />
-                  transcribing…
-                </>
-              )}
+            <motion.span style={s.recBadge}
+              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+              {isRecording
+                ? <><motion.span style={s.recDot} animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 1 }} />recording…</>
+                : <><motion.span style={{ ...s.recDot, background: "#c9a84c" }} animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 0.8 }} />transcribing…</>
+              }
             </motion.span>
           )}
         </AnimatePresence>
 
-        {/* Indexing badge */}
         <AnimatePresence>
           {isIndexing && (
-            <motion.span
-              style={s.indexingBadge}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-            >
-              <motion.span
-                style={{ ...s.recDot, background: "#818cf8" }}
-                animate={{ opacity: [1, 0.2, 1] }}
-                transition={{ repeat: Infinity, duration: 0.9 }}
-              />
+            <motion.span style={s.indexingBadge}
+              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+              <motion.span style={{ ...s.recDot, background: "#818cf8" }}
+                animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 0.9 }} />
               indexing repo…
             </motion.span>
           )}
@@ -145,117 +274,101 @@ export const InputBar = ({
       <AnimatePresence>
         {recError && (
           <motion.div style={s.errBanner}
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-          >
+            initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}>
             ⚠ {recError}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Document selector — fixed label + horizontally scrollable pills */}
+      {/* Source panel — only shown when signed in and has docs */}
       <AnimatePresence>
         {signedIn && hasDocs && (
-          <motion.div
-            style={s.docSelectorRow}
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.25 }}
+          <motion.div style={s.sourcePanel}
+            initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.25 }}
           >
-            {/* Fixed left: icon + label + loading */}
-            <div style={s.docSelectorLeft}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-                stroke="#6b6b78" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+            {/* Top row: All pill + filter badge */}
+            <div style={s.panelTopRow}>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
+                stroke="#3a3a50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
               </svg>
-              <span style={s.docLabel}>Search in:</span>
-              {loadingDocs && (
-                <span style={{ fontSize: "9px", color: "#3a3a48", fontFamily: "'DM Mono',monospace" }}>
-                  loading…
-                </span>
-              )}
+              <span style={s.panelLabel}>Filter source:</span>
+              <motion.button type="button" onClick={() => onSourceChange("all")}
+                style={{ ...s.allPill, ...(selectedSource === "all" ? s.allPillActive : {}) }}
+                whileHover={{ borderColor: "#c9a84c55" }} whileTap={{ scale: 0.95 }}>
+                All
+              </motion.button>
+              {loadingDocs && <span style={s.loadingText}>loading…</span>}
+              <AnimatePresence>
+                {selectedSource !== "all" && (
+                  <motion.span style={s.filterBadge}
+                    initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                    ● filtered
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Scrollable pills */}
-            <div style={s.docPillsScroll}>
-              <motion.button type="button"
-                onClick={() => onSourceChange("all")}
-                style={{ ...s.docPill, ...(selectedSource === "all" ? s.docPillActive : {}) }}
-                whileHover={{ borderColor: "#c9a84c66" }}
-                whileTap={{ scale: 0.95 }}
-              >
-                All documents
-              </motion.button>
+            {/* PDFs strip */}
+            {pdfDocs.length > 0 && (
+              <>
+                <div style={s.stripDivider} />
+                <ScrollStrip
+                  label="Docs"
+                  icon={
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
+                      stroke="#4a4a60" strokeWidth="2" strokeLinecap="round">
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                  }
+                  items={pdfDocs}
+                  selectedSource={selectedSource}
+                  onSelect={onSourceChange}
+                  onDelete={setDeleteTarget}
+                />
+              </>
+            )}
 
-              {documents.map((doc) => (
-                <motion.button
-                  key={doc.source}
-                  type="button"
-                  onClick={() => onSourceChange(selectedSource === doc.source ? "all" : doc.source)}
-                  style={{ ...s.docPill, ...(selectedSource === doc.source ? s.docPillActive : {}) }}
-                  whileHover={{ borderColor: "#c9a84c66" }}
-                  whileTap={{ scale: 0.95 }}
-                  title={doc.source}
-                >
-                  {doc.source.startsWith('github:') ? (
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+            {/* Repos strip */}
+            {repoDocs.length > 0 && (
+              <>
+                <div style={s.stripDivider} />
+                <ScrollStrip
+                  label="Repos"
+                  icon={
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="#4a4a60">
                       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
                     </svg>
-                  ) : (
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-                    >
-                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
-                  )}
-                  {doc.source.startsWith('github:')
-                    ? doc.source.replace('github:', '').slice(0, 20)
-                    : doc.source.length > 20
-                      ? doc.source.slice(0, 17) + "..."
-                      : doc.source
                   }
-                </motion.button>
-              ))}
-            </div>
-
-            {/* Fixed right: filtered badge */}
-            <AnimatePresence>
-              {selectedSource !== "all" && (
-                <motion.span style={s.filterActive}
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                >
-                  ● filtered
-                </motion.span>
-              )}
-            </AnimatePresence>
+                  items={repoDocs}
+                  selectedSource={selectedSource}
+                  onSelect={onSourceChange}
+                  onDelete={setDeleteTarget}
+                />
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* GitHub repo input panel */}
+      {/* Repo input panel */}
       <AnimatePresence>
         {showRepo && (
           <RepoInput
             signedIn={signedIn}
             isIndexing={isIndexing}
-            onIndex={handleIndexRepo}
+            onIndex={(url) => { onIndexRepo(url) }}
             onClose={() => setShowRepo(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* Input wrap */}
+      {/* Main input bar */}
       <motion.div
         style={{
-          ...s.inputWrap,
-          position: "relative",
-          opacity: signedIn ? 1 : 0.72,
+          ...s.inputWrap, position: "relative", opacity: signedIn ? 1 : 0.72,
           boxShadow: isRecording
             ? "0 0 0 1.5px #f8717166, 0 8px 48px #f8717114, inset 0 1px 0 #f8717111"
             : isIndexing
@@ -270,49 +383,27 @@ export const InputBar = ({
         <AnimatePresence mode="wait">
           {!file ? (
             <motion.label key="attach"
-              style={{
-                ...s.attachBtn,
-                pointerEvents: signedIn ? "auto" : "none",
-                opacity:       signedIn ? 1 : 0.45,
-                cursor:        signedIn ? "pointer" : "not-allowed",
-              }}
-              whileHover={signedIn
-                ? { borderColor: "#c9a84c99", color: "#c9a84c", background: "#c9a84c0a" }
-                : {}
-              }
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              style={{ ...s.attachBtn, pointerEvents: signedIn ? "auto" : "none", opacity: signedIn ? 1 : 0.45, cursor: signedIn ? "pointer" : "not-allowed" }}
+              whileHover={signedIn ? { borderColor: "#c9a84c99", color: "#c9a84c", background: "#c9a84c0a" } : {}}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
               </svg>
               PDF
-              {signedIn && (
-                <input type="file" accept="application/pdf"
-                  style={{ display: "none" }} onChange={onFileChange} />
-              )}
+              {signedIn && <input type="file" accept="application/pdf" style={{ display: "none" }} onChange={onFileChange} />}
             </motion.label>
           ) : (
             <motion.div key="chip" style={s.fileChip}
-              initial={{ opacity: 0, scale: 0.88 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-                stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round"
-              >
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
+              initial={{ opacity: 0, scale: 0.88 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
               </svg>
               <span style={s.chipName}>{fileName}</span>
-              <button type="button"
-                onClick={signedIn ? onRemoveFile : undefined}
-                disabled={!signedIn}
-                style={{ ...s.chipX, opacity: signedIn ? 1 : 0.35, cursor: signedIn ? "pointer" : "not-allowed" }}
-              >✕</button>
+              <button type="button" onClick={signedIn ? onRemoveFile : undefined} disabled={!signedIn}
+                style={{ ...s.chipX, opacity: signedIn ? 1 : 0.35, cursor: signedIn ? "pointer" : "not-allowed" }}>✕</button>
             </motion.div>
           )}
         </AnimatePresence>
@@ -320,18 +411,11 @@ export const InputBar = ({
         <div style={s.sep} />
 
         {/* GitHub button */}
-        <motion.button
-          type="button"
+        <motion.button type="button"
           onClick={signedIn ? () => setShowRepo(v => !v) : promptSignIn}
-          style={{
-            ...s.githubBtn,
-            ...(showRepo ? s.githubBtnActive : {}),
-            opacity: signedIn ? 1 : 0.45,
-            cursor:  signedIn ? "pointer" : "not-allowed",
-          }}
+          style={{ ...s.githubBtn, ...(showRepo ? s.githubBtnActive : {}), opacity: signedIn ? 1 : 0.45, cursor: signedIn ? "pointer" : "not-allowed" }}
           whileHover={signedIn ? { borderColor: "#818cf866", color: "#818cf8" } : {}}
-          whileTap={signedIn ? { scale: 0.95 } : {}}
-          title="Index a GitHub repository"
+          whileTap={signedIn ? { scale: 0.95 } : {}} title="Index a GitHub repository"
         >
           <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
@@ -345,49 +429,30 @@ export const InputBar = ({
         <AnimatePresence mode="wait">
           {isTranscribing ? (
             <motion.div key="transcribing" style={s.transcribingPill}
-              initial={{ opacity: 0, scale: 0.85 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.85 }}
-            >
+              initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.85 }}>
               <motion.span style={{ ...s.recDot, background: "#c9a84c", marginRight: 5 }}
-                animate={{ opacity: [1, 0.2, 1] }}
-                transition={{ repeat: Infinity, duration: 0.7 }}
-              />
+                animate={{ opacity: [1, 0.2, 1] }} transition={{ repeat: Infinity, duration: 0.7 }} />
               transcribing…
             </motion.div>
           ) : (
             <motion.button key="mic" type="button"
               onClick={!signedIn ? promptSignIn : isRecording ? onRecordStop : onRecordStart}
               disabled={isTranscribing}
-              style={{
-                ...s.micBtn,
-                ...(isRecording ? s.micBtnActive : {}),
-                opacity: signedIn ? 1 : 0.45,
-                cursor:  signedIn ? "pointer" : "not-allowed",
-              }}
-              whileHover={signedIn && !isTranscribing
-                ? { borderColor: isRecording ? "#f8717199" : "#c9a84c99", scale: 1.05 }
-                : {}
-              }
+              style={{ ...s.micBtn, ...(isRecording ? s.micBtnActive : {}), opacity: signedIn ? 1 : 0.45, cursor: signedIn ? "pointer" : "not-allowed" }}
+              whileHover={signedIn && !isTranscribing ? { borderColor: isRecording ? "#f8717199" : "#c9a84c99", scale: 1.05 } : {}}
               whileTap={signedIn ? { scale: 0.92 } : {}}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               title={isRecording ? "Stop recording" : "Record voice message"}
             >
               {isRecording ? (
-                <motion.span style={s.stopSqRed}
-                  animate={{ opacity: [1, 0.4, 1] }}
-                  transition={{ repeat: Infinity, duration: 0.9 }}
-                />
+                <motion.span style={s.stopSqRed} animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 0.9 }} />
               ) : (
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                >
-                  <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-                  <path d="M19 10v2a7 7 0 01-14 0v-2" />
-                  <line x1="12" y1="19" x2="12" y2="23" />
-                  <line x1="8"  y1="23" x2="16" y2="23" />
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/>
+                  <path d="M19 10v2a7 7 0 01-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
                 </svg>
               )}
             </motion.button>
@@ -401,12 +466,12 @@ export const InputBar = ({
           style={{ ...s.input, cursor: signedIn ? "text" : "not-allowed" }}
           type="text"
           placeholder={
-            isIndexing        ? "Indexing repository…" :
-            isTranscribing    ? "Transcribing your voice…" :
-            isRecording       ? "Recording — click ■ to stop" :
+            isIndexing     ? "Indexing repository…" :
+            isTranscribing ? "Transcribing your voice…" :
+            isRecording    ? "Recording — click ■ to stop" :
             signedIn
               ? selectedSource !== "all"
-                ? `Ask about ${selectedSource.replace('github:', '').slice(0, 25)}…`
+                ? `Ask about ${selectedSource.replace("github:", "").slice(0, 25)}…`
                 : "Ask anything… attach a PDF or index a GitHub repo"
               : "Sign in to ask questions…"
           }
@@ -421,31 +486,20 @@ export const InputBar = ({
         {/* Send / Stop */}
         <AnimatePresence mode="wait">
           {isStreaming ? (
-            <motion.button key="stop" type="button" onClick={onStop}
-              style={s.stopBtn}
-              whileHover={{ scale: 1.08, background: "#c9a84c22" }}
-              whileTap={{ scale: 0.92 }}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-            >
+            <motion.button key="stop" type="button" onClick={onStop} style={s.stopBtn}
+              whileHover={{ scale: 1.08, background: "#c9a84c22" }} whileTap={{ scale: 0.92 }}
+              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
               <span style={s.stopSq} />
             </motion.button>
           ) : (
-            <motion.button key="send" type="button" onClick={onSend}
-              disabled={!sendEnabled}
+            <motion.button key="send" type="button" onClick={onSend} disabled={!sendEnabled}
               style={{ ...s.sendBtn, ...(!sendEnabled ? s.sendOff : {}) }}
-              whileHover={sendEnabled ? { scale: 1.07 } : {}}
-              whileTap={sendEnabled ? { scale: 0.91 } : {}}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-            >
+              whileHover={sendEnabled ? { scale: 1.07 } : {}} whileTap={sendEnabled ? { scale: 0.91 } : {}}
+              initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
               </svg>
             </motion.button>
           )}
@@ -462,9 +516,7 @@ export const InputBar = ({
           <kbd style={s.kbd}>Enter</kbd> to send &nbsp;·&nbsp;
           <kbd style={s.kbd}>🎙</kbd> to speak &nbsp;·&nbsp;
           {selectedSource !== "all"
-            ? <span style={{ color: "#c9a84c" }}>
-                Searching: {selectedSource.replace('github:', '').slice(0, 20)}
-              </span>
+            ? <span style={{ color: "#c9a84c" }}>Searching: {selectedSource.replace("github:", "").slice(0, 20)}</span>
             : " Powered by RAG + Voyage + Groq"
           }
         </span>
@@ -483,65 +535,59 @@ const s: Record<string, React.CSSProperties> = {
   recDot:         { display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#f87171", flexShrink: 0 },
   errBanner:      { fontSize: "10px", color: "#f87171", background: "#f871710d", border: "1px solid #f8717133", borderRadius: "8px", padding: "5px 10px", fontFamily: "'DM Mono',monospace", letterSpacing: "0.04em" },
 
-  // Outer row: fixed label on left, scrollable pills in middle, badge on right
-  docSelectorRow: {
-    display:     "flex",
-    alignItems:  "center",
-    gap:         "8px",
-    padding:     "6px 8px",
-    borderRadius: "10px",
-    background:  "#0e0e14",
-    border:      "1px solid #1a1a24",
-    overflow:    "hidden",   // clip the scroll container
-    minWidth:    0,
-  },
-  // Fixed left section
-  docSelectorLeft: {
-    display:    "flex",
-    alignItems: "center",
-    gap:        "6px",
-    flexShrink: 0,
-  },
-  docLabel: { fontSize: "9px", color: "#6b6b78", letterSpacing: "0.08em", fontFamily: "'DM Mono',monospace", textTransform: "uppercase" as const, flexShrink: 0 },
+  // Source panel
+  sourcePanel:    { background: "#0e0e14", border: "1px solid #1a1a24", borderRadius: "12px", padding: "10px 12px", display: "flex", flexDirection: "column", gap: "8px" },
+  panelTopRow:    { display: "flex", alignItems: "center", gap: "8px" },
+  panelLabel:     { fontSize: "9px", color: "#3a3a50", letterSpacing: "0.1em", fontFamily: "'DM Mono',monospace", textTransform: "uppercase" as const, flexShrink: 0 },
+  allPill:        { display: "flex", alignItems: "center", padding: "3px 10px", borderRadius: "6px", border: "1px solid #222230", background: "transparent", color: "#6b6b78", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.05em", transition: "all 0.15s", flexShrink: 0 },
+  allPillActive:  { borderColor: "#c9a84c66", background: "#c9a84c11", color: "#c9a84c" },
+  filterBadge:    { fontSize: "9px", color: "#c9a84c88", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", marginLeft: "auto" },
+  loadingText:    { fontSize: "9px", color: "#3a3a48", fontFamily: "'DM Mono',monospace" },
+  stripDivider:   { height: "1px", background: "#141420" },
 
-  // Horizontally scrollable pills strip
-  docPillsScroll: {
-    display:          "flex",
-    alignItems:       "center",
-    gap:              "6px",
-    overflowX:        "auto",
-    overflowY:        "hidden",
-    flex:             1,
-    minWidth:         0,
-    scrollbarWidth:   "none",           // Firefox — hide scrollbar
-    msOverflowStyle: "none" as unknown as React.CSSProperties["msOverflowStyle"],  // IE/Edge
-    // WebKit scrollbar hidden via global CSS ideally; inline not possible
-    paddingBottom:    "2px",            // slight room so focus rings don't clip
-  },
+  // Horizontal strip row
+  strip:          { display: "flex", alignItems: "center", gap: "10px", minWidth: 0 },
+  stripLeft:      { display: "flex", alignItems: "center", gap: "5px", flexShrink: 0, width: "36px" },
+  stripLabelText: { fontSize: "8px", color: "#3a3a50", letterSpacing: "0.1em", fontFamily: "'DM Mono',monospace", textTransform: "uppercase" as const },
+  stripScroll:    { display: "flex", alignItems: "center", gap: "5px", overflowX: "auto", overflowY: "hidden", flex: 1, minWidth: 0, scrollbarWidth: "none", paddingBottom: "1px" },
 
-  docPill:        { display: "flex", alignItems: "center", gap: "4px", padding: "3px 9px", borderRadius: "6px", border: "1px solid #222230", background: "transparent", color: "#6b6b78", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.04em", transition: "all 0.15s", flexShrink: 0 },
-  docPillActive:  { borderColor: "#c9a84c66", background: "#c9a84c11", color: "#c9a84c" },
-  filterActive:   { fontSize: "9px", color: "#c9a84c88", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", flexShrink: 0 },
+  // Source pill
+  sourcePill:       { display: "inline-flex", alignItems: "stretch", borderRadius: "7px", border: "1px solid #222230", background: "transparent", flexShrink: 0, transition: "border-color 0.15s", overflow: "hidden" },
+  sourcePillActive: { borderColor: "#c9a84c55", background: "#c9a84c08" },
+  pillLabel:        { display: "flex", alignItems: "center", gap: "5px", padding: "3px 7px 3px 9px", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", background: "transparent", border: "none", letterSpacing: "0.04em", whiteSpace: "nowrap" as const, transition: "color 0.15s" },
+  pillDelete:       { display: "flex", alignItems: "center", justifyContent: "center", width: "22px", color: "#2e2e40", cursor: "pointer", background: "transparent", border: "none", borderLeft: "1px solid #1e1e2a", transition: "all 0.15s", flexShrink: 0 },
 
-  inputWrap:      { display: "flex", alignItems: "center", gap: "10px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "10px 12px", transition: "box-shadow 0.2s" },
-  signInGate:     { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
-  attachBtn:      { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", userSelect: "none" as const, transition: "all 0.2s" },
-  githubBtn:      { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", background: "transparent", userSelect: "none" as const, transition: "all 0.2s" },
-  githubBtnActive: { borderColor: "#818cf866", color: "#818cf8", background: "#818cf80a" },
-  fileChip:       { display: "flex", alignItems: "center", gap: "7px", padding: "6px 11px", borderRadius: "10px", border: "1px solid #4ade8033", background: "#4ade800d", flexShrink: 0 },
-  chipName:       { fontSize: "10px", color: "#4ade80", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
-  chipX:          { background: "none", border: "none", cursor: "pointer", color: "#6b6b78", fontSize: "10px", padding: "0 2px", lineHeight: 1 },
-  sep:            { width: "1px", height: "22px", background: "#1e1e2a", flexShrink: 0 },
-  input:          { flex: 1, background: "transparent", border: "none", outline: "none", color: "#e0e0ec", fontSize: "14px", fontFamily: "'DM Sans','Segoe UI',sans-serif", letterSpacing: "0.01em", lineHeight: "1.5" },
-  micBtn:         { display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", borderRadius: "10px", border: "1px dashed #2a2a38", background: "transparent", color: "#6b6b78", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" },
-  micBtnActive:   { borderColor: "#f8717166", background: "#f871710d", color: "#f87171" },
-  stopSqRed:      { display: "block", width: "10px", height: "10px", borderRadius: "2px", background: "#f87171" },
+  // Input area
+  inputWrap:        { display: "flex", alignItems: "center", gap: "10px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "10px 12px", transition: "box-shadow 0.2s" },
+  signInGate:       { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
+  attachBtn:        { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", userSelect: "none" as const, transition: "all 0.2s" },
+  githubBtn:        { display: "flex", alignItems: "center", gap: "6px", padding: "7px 13px", borderRadius: "10px", border: "1px dashed #2a2a38", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.1em", fontWeight: 500, cursor: "pointer", flexShrink: 0, fontFamily: "'DM Mono',monospace", background: "transparent", userSelect: "none" as const, transition: "all 0.2s" },
+  githubBtnActive:  { borderColor: "#818cf866", color: "#818cf8", background: "#818cf80a" },
+  fileChip:         { display: "flex", alignItems: "center", gap: "7px", padding: "6px 11px", borderRadius: "10px", border: "1px solid #4ade8033", background: "#4ade800d", flexShrink: 0 },
+  chipName:         { fontSize: "10px", color: "#4ade80", maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  chipX:            { background: "none", border: "none", cursor: "pointer", color: "#6b6b78", fontSize: "10px", padding: "0 2px", lineHeight: 1 },
+  sep:              { width: "1px", height: "22px", background: "#1e1e2a", flexShrink: 0 },
+  input:            { flex: 1, background: "transparent", border: "none", outline: "none", color: "#e0e0ec", fontSize: "14px", fontFamily: "'DM Sans','Segoe UI',sans-serif", letterSpacing: "0.01em", lineHeight: "1.5" },
+  micBtn:           { display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", borderRadius: "10px", border: "1px dashed #2a2a38", background: "transparent", color: "#6b6b78", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" },
+  micBtnActive:     { borderColor: "#f8717166", background: "#f871710d", color: "#f87171" },
+  stopSqRed:        { display: "block", width: "10px", height: "10px", borderRadius: "2px", background: "#f87171" },
   transcribingPill: { display: "flex", alignItems: "center", padding: "5px 10px", borderRadius: "10px", border: "1px solid #c9a84c33", background: "#c9a84c0a", color: "#c9a84c", fontSize: "10px", fontFamily: "'DM Mono',monospace", letterSpacing: "0.06em", flexShrink: 0, whiteSpace: "nowrap" as const },
-  sendBtn:        { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "none", background: "linear-gradient(135deg, #c9a84c 0%, #9a7228 100%)", color: "#08080a", cursor: "pointer", flexShrink: 0, boxShadow: "0 2px 16px #c9a84c44" },
-  sendOff:        { opacity: 0.25, cursor: "not-allowed", boxShadow: "none" },
-  stopBtn:        { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "1px solid #c9a84c44", background: "#c9a84c0a", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" },
-  stopSq:         { display: "block", width: "12px", height: "12px", borderRadius: "3px", background: "#c9a84c" },
-  footer:         { display: "flex", justifyContent: "center" },
-  footerText:     { fontSize: "10px", color: "#2e2e3c", letterSpacing: "0.05em", fontFamily: "'DM Mono',monospace" },
-  kbd:            { padding: "1px 5px", borderRadius: "4px", border: "1px solid #222230", background: "#111118", color: "#4a4a58", fontSize: "9px" },
+  sendBtn:          { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "none", background: "linear-gradient(135deg, #c9a84c 0%, #9a7228 100%)", color: "#08080a", cursor: "pointer", flexShrink: 0, boxShadow: "0 2px 16px #c9a84c44" },
+  sendOff:          { opacity: 0.25, cursor: "not-allowed", boxShadow: "none" },
+  stopBtn:          { display: "flex", alignItems: "center", justifyContent: "center", width: "38px", height: "38px", borderRadius: "12px", border: "1px solid #c9a84c44", background: "#c9a84c0a", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" },
+  stopSq:           { display: "block", width: "12px", height: "12px", borderRadius: "3px", background: "#c9a84c" },
+  footer:           { display: "flex", justifyContent: "center" },
+  footerText:       { fontSize: "10px", color: "#2e2e3c", letterSpacing: "0.05em", fontFamily: "'DM Mono',monospace" },
+  kbd:              { padding: "1px 5px", borderRadius: "4px", border: "1px solid #222230", background: "#111118", color: "#4a4a58", fontSize: "9px" },
+
+  // Delete confirmation modal
+  modalOverlay: { position: "fixed", inset: 0, background: "#000000aa", backdropFilter: "blur(5px)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" },
+  modal:        { background: "#0d0d14", border: "1px solid #2a2a3c", borderRadius: "20px", padding: "28px 26px 24px", maxWidth: "360px", width: "90vw", display: "flex", flexDirection: "column", alignItems: "center", gap: "14px", boxShadow: "0 32px 96px #000000dd" },
+  modalIcon:    { width: "52px", height: "52px", borderRadius: "16px", background: "#f871710a", border: "1px solid #f8717130", display: "flex", alignItems: "center", justifyContent: "center" },
+  modalTitle:   { fontSize: "16px", fontWeight: 600, color: "#e0e0ec", fontFamily: "'DM Sans',sans-serif", letterSpacing: "0.01em" },
+  modalSource:  { fontSize: "11px", color: "#c9a84c", fontFamily: "'DM Mono',monospace", background: "#c9a84c0a", border: "1px solid #c9a84c20", borderRadius: "8px", padding: "4px 14px", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const },
+  modalWarning: { fontSize: "12px", color: "#5a5a70", fontFamily: "'DM Sans',sans-serif", lineHeight: "1.65", textAlign: "center" as const },
+  modalActions: { display: "flex", gap: "10px", width: "100%", marginTop: "2px" },
+  modalCancel:  { flex: 1, padding: "10px", borderRadius: "10px", border: "1px solid #222230", background: "transparent", color: "#6b6b78", fontSize: "12px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.04em", transition: "border-color 0.15s" },
+  modalDelete:  { flex: 1, padding: "10px", borderRadius: "10px", border: "none", background: "#f8717118", color: "#f87171", fontSize: "12px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.04em", display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", transition: "background 0.2s" },
 }
