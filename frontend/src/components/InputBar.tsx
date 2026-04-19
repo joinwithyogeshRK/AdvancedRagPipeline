@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useClerk } from "@clerk/react"
 import { RepoInput } from "./RepoInput"
@@ -135,9 +135,9 @@ const Tooltip = ({ text, children }: { text: string; children: React.ReactNode }
 
 // ── Source pill ────────────────────────────────────────────────────────────
 const SourcePill = ({
-  source, isActive, onSelect, onDelete,
+  source, isActive, onSelect, onDelete, nudge,
 }: {
-  source: string; isActive: boolean; onSelect: () => void; onDelete: () => void
+  source: string; isActive: boolean; onSelect: () => void; onDelete: () => void; nudge?: boolean
 }) => {
   const isRepo = source.startsWith("github:")
   const label  = isRepo
@@ -150,11 +150,19 @@ const SourcePill = ({
       : `Filter to doc: ${source}`
     }>
       <motion.div
-        style={{ ...s.sourcePill, ...(isActive ? s.sourcePillActive : {}) }}
+        style={{ ...s.sourcePill, ...(isActive ? s.sourcePillActive : {}), ...(nudge && !isActive ? s.sourcePillNudge : {}) }}
         layout
+        animate={nudge && !isActive ? {
+          boxShadow: [
+            "0 0 0px #c9a84c00",
+            "0 0 8px #c9a84c66",
+            "0 0 0px #c9a84c00",
+          ],
+        } : {}}
+        transition={nudge && !isActive ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : {}}
       >
         <button type="button" onClick={onSelect}
-          style={{ ...s.pillLabel, color: isActive ? "#c9a84c" : "#5a5a72" }}
+          style={{ ...s.pillLabel, color: isActive ? "#c9a84c" : nudge ? "#c9a84c99" : "#5a5a72" }}
         >
           {isRepo ? (
             <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style={{ flexShrink: 0 }}>
@@ -188,6 +196,73 @@ const SourcePill = ({
   )
 }
 
+// ── Hallucination warning banner ───────────────────────────────────────────
+const HallucinationWarning = ({
+  documents,
+  selectedSource,
+  onSourceChange,
+}: {
+  documents: Document[]
+  selectedSource: string
+  onSourceChange: (val: string) => void
+}) => {
+  const firstDoc = documents[0]
+  if (!firstDoc) return null
+
+  const isRepo  = firstDoc.source.startsWith("github:")
+  const label   = isRepo
+    ? firstDoc.source.replace("github:", "")
+    : firstDoc.source.length > 22
+    ? firstDoc.source.slice(0, 20) + "…"
+    : firstDoc.source
+
+  return (
+    <motion.div
+      style={s.hallucinationBanner}
+      initial={{ opacity: 0, y: 6, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 4, scale: 0.97 }}
+      transition={{ duration: 0.22 }}
+    >
+      {/* Left: icon + text */}
+      <div style={s.hallucinationLeft}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+          stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span style={s.hallucinationText}>
+          Searching <span style={{ color: "#f59e0b" }}>all sources</span> — AI may hallucinate.
+          Pin a source for precise answers.
+        </span>
+      </div>
+
+      {/* Right: quick-select the first doc as a shortcut */}
+      <motion.button
+        type="button"
+        style={s.hallucinationBtn}
+        onClick={() => onSourceChange(firstDoc.source)}
+        whileHover={{ background: "#c9a84c22", borderColor: "#c9a84c88", color: "#c9a84c" }}
+        whileTap={{ scale: 0.95 }}
+      >
+        {isRepo ? (
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+        ) : (
+          <svg width="8" height="8" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        )}
+        Use "{label}"
+      </motion.button>
+    </motion.div>
+  )
+}
+
 // ── Main InputBar ──────────────────────────────────────────────────────────
 export const InputBar = ({
   message, file, fileName, charCount, chatId, isStreaming,
@@ -203,10 +278,31 @@ export const InputBar = ({
   const [deleting,     setDeleting]       = useState(false)
   const scrollRef                         = useRef<HTMLDivElement>(null)
 
+  // Track whether user has typed without picking a source — show warning after a brief delay
+  const [showHallucinationWarn, setShowHallucinationWarn] = useState(false)
+  const warnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const hasDocs     = documents.length > 0
+  const isUnpinned  = hasDocs && selectedSource === "all"
+
+  // Show hallucination warning after user has typed 10+ chars without pinning a source
+  useEffect(() => {
+    if (isUnpinned && message.trim().length >= 10) {
+      warnTimerRef.current = setTimeout(() => setShowHallucinationWarn(true), 400)
+    } else {
+      setShowHallucinationWarn(false)
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current)
+    }
+    return () => { if (warnTimerRef.current) clearTimeout(warnTimerRef.current) }
+  }, [isUnpinned, message])
+
+  // Hide warning as soon as they pick a source
+  useEffect(() => {
+    if (selectedSource !== "all") setShowHallucinationWarn(false)
+  }, [selectedSource])
+
   const canChat     = signedIn && !isStreaming && !isRecording && !isTranscribing
   const sendEnabled = signedIn && message.trim().length > 0 && !isStreaming && !isRecording && !isTranscribing
-  const hasDocs     = documents.length > 0
-
   const promptSignIn = () => { void openSignIn() }
 
   const handleDeleteConfirm = async () => {
@@ -220,6 +316,19 @@ export const InputBar = ({
       setDeleteTarget(null)
     }
   }
+
+  // Placeholder adapts to guide user
+  const placeholder = (() => {
+    if (isIndexing)     return "Indexing repository…"
+    if (isTranscribing) return "Transcribing your voice…"
+    if (isRecording)    return "Recording — click ■ to stop"
+    if (!signedIn)      return "Sign in to ask questions…"
+    if (isUnpinned && hasDocs)
+      return "Tip: pin a source above for accurate answers, or ask anything…"
+    if (selectedSource !== "all")
+      return `Ask about ${selectedSource.replace("github:", "").slice(0, 28)}…`
+    return "Ask anything…"
+  })()
 
   return (
     <motion.div style={s.inputSection}
@@ -295,6 +404,17 @@ export const InputBar = ({
         )}
       </AnimatePresence>
 
+      {/* ── Hallucination warning — appears below input when user types without pinning ── */}
+      <AnimatePresence>
+        {showHallucinationWarn && (
+          <HallucinationWarning
+            documents={documents}
+            selectedSource={selectedSource}
+            onSourceChange={onSourceChange}
+          />
+        )}
+      </AnimatePresence>
+
       {/* ── MAIN INPUT BAR ──────────────────────────────────── */}
       <motion.div
         style={{
@@ -305,6 +425,8 @@ export const InputBar = ({
             ? "0 0 0 1.5px #f8717166, 0 8px 48px #f8717114, inset 0 1px 0 #f8717111"
             : isIndexing
             ? "0 0 0 1.5px #818cf866, 0 8px 48px #818cf814, inset 0 1px 0 #818cf811"
+            : showHallucinationWarn
+            ? "0 0 0 1.5px #f59e0b55, 0 8px 48px #f59e0b0e, inset 0 1px 0 #f59e0b0a"
             : focused && signedIn
             ? "0 0 0 1.5px #c9a84c66, 0 8px 48px #c9a84c14, inset 0 1px 0 #c9a84c11"
             : "0 0 0 1px #222230, 0 4px 24px #00000070, inset 0 1px 0 #ffffff06",
@@ -373,12 +495,12 @@ export const InputBar = ({
 
         <div style={s.sep}/>
 
-        {/* ── Source filter pills — inline horizontal scroll ── */}
+        {/* ── Source filter pills ── */}
         {signedIn && hasDocs && (
           <Tooltip text="Filter search to a specific document or repo. Click a pill to activate, × to delete from index.">
             <div style={s.filterIcon}>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
-                stroke={selectedSource !== "all" ? "#c9a84c" : "#3a3a50"}
+                stroke={selectedSource !== "all" ? "#c9a84c" : isUnpinned && showHallucinationWarn ? "#f59e0b" : "#3a3a50"}
                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
               </svg>
@@ -387,7 +509,11 @@ export const InputBar = ({
         )}
 
         {signedIn && hasDocs && (
-          <div ref={scrollRef} style={s.pillsScroll}>
+          <div ref={scrollRef} style={{
+            ...s.pillsScroll,
+            // subtle amber glow on the pills row when warning is active
+            ...(showHallucinationWarn ? { borderRadius: "6px", outline: "1px solid #f59e0b22" } : {})
+          }}>
             {/* All pill */}
             <Tooltip text="Search across all your documents and repos">
               <motion.button type="button"
@@ -400,7 +526,7 @@ export const InputBar = ({
               </motion.button>
             </Tooltip>
 
-            {/* Source pills */}
+            {/* Source pills — nudge animation when warning is active */}
             {documents.map(doc => (
               <SourcePill
                 key={doc.source}
@@ -408,6 +534,7 @@ export const InputBar = ({
                 isActive={selectedSource === doc.source}
                 onSelect={() => onSourceChange(selectedSource === doc.source ? "all" : doc.source)}
                 onDelete={() => setDeleteTarget(doc.source)}
+                nudge={showHallucinationWarn}
               />
             ))}
 
@@ -467,16 +594,7 @@ export const InputBar = ({
           ref={inputRef}
           style={{ ...s.input, cursor: signedIn ? "text" : "not-allowed" }}
           type="text"
-          placeholder={
-            isIndexing     ? "Indexing repository…" :
-            isTranscribing ? "Transcribing your voice…" :
-            isRecording    ? "Recording — click ■ to stop" :
-            signedIn
-              ? selectedSource !== "all"
-                ? `Ask about ${selectedSource.replace("github:", "").slice(0, 28)}…`
-                : "Ask anything…"
-              : "Sign in to ask questions…"
-          }
+          placeholder={placeholder}
           value={message}
           disabled={!signedIn || isTranscribing || isIndexing}
           onChange={e => signedIn && onChange(e.target.value)}
@@ -540,7 +658,25 @@ const s: Record<string, React.CSSProperties> = {
   recDot:         { display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#f87171", flexShrink: 0 },
   errBanner:      { fontSize: "10px", color: "#f87171", background: "#f871710d", border: "1px solid #f8717133", borderRadius: "8px", padding: "5px 10px", fontFamily: "'DM Mono',monospace" },
 
-  // Input wrap — single bar containing everything
+  // Hallucination warning
+  hallucinationBanner: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    gap: "10px", padding: "8px 12px", borderRadius: "10px",
+    border: "1px solid #f59e0b33", background: "#f59e0b08",
+    fontFamily: "'DM Mono',monospace",
+  },
+  hallucinationLeft: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 },
+  hallucinationText: { fontSize: "10px", color: "#a08050", letterSpacing: "0.04em", lineHeight: "1.5" },
+  hallucinationBtn:  {
+    display: "flex", alignItems: "center", gap: "5px", flexShrink: 0,
+    padding: "4px 10px", borderRadius: "7px",
+    border: "1px solid #c9a84c44", background: "#c9a84c0a",
+    color: "#c9a84c99", fontSize: "9px", fontFamily: "'DM Mono',monospace",
+    cursor: "pointer", letterSpacing: "0.05em", whiteSpace: "nowrap",
+    transition: "all 0.15s",
+  },
+
+  // Input wrap
   inputWrap:      { display: "flex", alignItems: "center", gap: "8px", borderRadius: "16px", border: "1px solid #222230", background: "#0e0e14", padding: "8px 12px", transition: "box-shadow 0.2s", minHeight: "56px" },
   signInGate:     { position: "absolute", inset: 0, zIndex: 10, cursor: "pointer", border: "none", padding: 0, margin: 0, background: "transparent", borderRadius: "16px" },
 
@@ -558,7 +694,7 @@ const s: Record<string, React.CSSProperties> = {
   filterIcon:     { display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, padding: "0 2px", cursor: "default" },
 
   // Pills horizontal scroll
-  pillsScroll:    { display: "flex", alignItems: "center", gap: "4px", overflowX: "auto", overflowY: "hidden", flex: 1, minWidth: 0, scrollbarWidth: "none" as const, padding: "1px 0" },
+  pillsScroll:    { display: "flex", alignItems: "center", gap: "4px", overflowX: "auto", overflowY: "hidden", flex: 1, minWidth: 0, scrollbarWidth: "none" as const, padding: "1px 0", transition: "outline 0.2s" },
 
   // All pill
   allPill:        { display: "flex", alignItems: "center", padding: "3px 9px", borderRadius: "6px", border: "1px solid #222230", background: "transparent", color: "#5a5a72", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", letterSpacing: "0.05em", flexShrink: 0, transition: "all 0.15s", whiteSpace: "nowrap" as const },
@@ -568,8 +704,7 @@ const s: Record<string, React.CSSProperties> = {
   // Source pill
   sourcePill:       { display: "inline-flex", alignItems: "stretch", borderRadius: "7px", border: "1px solid #1e1e2c", background: "transparent", flexShrink: 0, transition: "border-color 0.15s", overflow: "hidden" },
   sourcePillActive: { borderColor: "#c9a84c55", background: "#c9a84c08" },
-  pillLabel:        { display: "flex", alignItems: "center", gap: "5px", padding: "3px 6px 3px 8px", fontSize: "9px", fontFamily: "'DM Mono',monospace", cursor: "pointer", background: "transparent", border: "none", letterSpacing: "0.03em", whiteSpace: "nowrap" as const, transition: "color 0.15s" },
-  pillDelete:       { display: "flex", alignItems: "center", justifyContent: "center", width: "20px", color: "#2a2a3c", cursor: "pointer", background: "transparent", border: "none", borderLeft: "1px solid #1a1a26", transition: "all 0.15s", flexShrink: 0 },
+  sourcePillNudge:  { borderColor: "#c9a84c44", background: "#c9a84c06" },
 
   // Sep
   sep:            { width: "1px", height: "20px", background: "#1e1e2a", flexShrink: 0 },
