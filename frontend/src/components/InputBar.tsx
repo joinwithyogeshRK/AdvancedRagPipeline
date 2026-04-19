@@ -199,6 +199,7 @@ const SourcePill = ({
 // ── Hallucination warning banner ───────────────────────────────────────────
 const HallucinationWarning = ({
   documents,
+  //@ts-ignore
   selectedSource,
   onSourceChange,
 }: {
