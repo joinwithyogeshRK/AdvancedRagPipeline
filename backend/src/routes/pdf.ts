@@ -9,7 +9,7 @@ import { rerankChunks } from "../rag/reranker.js"
 import { generateHypotheticalDocument } from "../rag/hyde.js"
 import type { BM25Chunk } from "../rag/bm25.js"
 import type { MetadataFilter } from "../rag/pinecone.js"
-import { askGroq } from "../rag/groq.js"
+import { askGroq, isStructuralQuery } from "../rag/groq.js"
 import { evalRAG } from "../rag/evaluator.js"
 import {
   createChat,
@@ -17,7 +17,6 @@ import {
   getChatMessagesForUser,
 } from "../services/historyService.js"
 
-// Supabase client — needed to record document uploads
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
@@ -38,7 +37,6 @@ const pdf = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "No query provided." })
     }
 
-    // Build metadata filter
     const metadataFilter: MetadataFilter | undefined = (() => {
       if (!filterSource && !filterAfter && !filterBefore) return undefined
       const filter: MetadataFilter = {}
@@ -66,13 +64,10 @@ const pdf = async (req: Request, res: Response) => {
         const msg  = extractionError instanceof Error ? extractionError.message : ""
         const safe = msg && !/_KEY|SECRET|TOKEN|password|environment variable/i.test(msg)
         return res.status(422).json({
-          error: safe
-            ? msg
-            : "We couldn't process this PDF. Try a different file or a smaller PDF.",
+          error: safe ? msg : "We couldn't process this PDF. Try a different file or a smaller PDF.",
         })
       }
 
-      // Step 2 — Chunk
       const chunks = await chunkText(text)
       console.log(`✅ Step 2 — ${chunks.length} chunks created`)
 
@@ -84,29 +79,20 @@ const pdf = async (req: Request, res: Response) => {
         text: chunkText,
       }))
 
-      // Step 3 — Embed
       const embeddedChunks = await embedChunks(chunks)
       console.log("✅ Step 3 — Chunks embedded")
 
-      // Step 4 — Store in Pinecone
       await storeInPinecone(embeddedChunks, userId, ts, source)
       console.log("✅ Step 4 — Stored in Pinecone")
 
-      // Step 4b — Record document in Supabase
-      // upsert so re-uploading same filename just updates timestamp
       const { error: docError } = await supabase
         .from("documents")
         .upsert(
-          {
-            user_id:     userId,
-            source:      source,
-            uploaded_at: ts,
-          },
+          { user_id: userId, source, uploaded_at: ts },
           { onConflict: "user_id,source" }
         )
 
       if (docError) {
-        // Non-fatal — Pinecone already has the data
         console.warn("⚠️  Failed to record document in Supabase:", docError.message)
       } else {
         console.log("✅ Step 4b — Document recorded in Supabase")
@@ -124,7 +110,48 @@ const pdf = async (req: Request, res: Response) => {
     const relevantChunks = reranked.map(c => c.text)
     console.log(`✅ Step 6 — ${relevantChunks.length} chunks reranked and ready`)
 
-    if (relevantChunks.length === 0) {
+    // ── Step 6b — Repo tree injection ──────────────────────
+    // If user is querying a specific repo AND query is structural
+    // fetch the full tree from Supabase and pass to Groq
+    let repoContext: { repoName: string; tree: any[] } | undefined
+
+    const isRepoQuery    = filterSource?.startsWith("github:")
+    const isStructural   = isStructuralQuery(query)
+
+    if (isRepoQuery) {
+      const repoName = filterSource!.replace("github:", "")
+
+      if (isStructural) {
+        // Structural query — fetch full tree
+        console.log(`🌳 Structural query detected — fetching tree for ${repoName}`)
+
+        const { data, error } = await supabase
+          .from("repo_trees")
+          .select("tree, repo_name")
+          .eq("user_id", userId)
+          .eq("repo_name", repoName)
+          .single()
+
+        if (!error && data) {
+          repoContext = {
+            repoName: data.repo_name,
+            tree:     data.tree ?? [],
+          }
+          console.log(`✅ Tree loaded: ${repoContext.tree.length} files`)
+        } else {
+          console.warn("⚠️  Could not fetch repo tree:", error?.message)
+        }
+      } else {
+        // Non-structural repo query — still inject repo name so Groq
+        // knows which repo is being discussed
+        repoContext = {
+          repoName,
+          tree: [],   // empty tree — Groq won't show file list
+        }
+      }
+    }
+
+    if (relevantChunks.length === 0 && !repoContext) {
       console.log("⚠️  No chunks found — falling back to Groq general knowledge")
     }
 
@@ -142,8 +169,8 @@ const pdf = async (req: Request, res: Response) => {
       console.log(`✅ Step 7 — Loaded ${previousMessages.length} previous messages`)
     }
 
-    // Step 8 — Ask Groq
-    const answer = await askGroq(query, relevantChunks, conversationHistory)
+    // Step 8 — Ask Groq (with optional repo context)
+    const answer = await askGroq(query, relevantChunks, conversationHistory, repoContext)
     console.log("✅ Step 8 — Answer generated")
 
     // Step 8b — Evaluate (non-blocking)
@@ -151,7 +178,7 @@ const pdf = async (req: Request, res: Response) => {
       console.warn("⚠️  Eval failed silently:", err)
     )
 
-    // Step 9 — Save chat
+    // Step 9 — Save
     if (!chatId) {
       const newChat = await createChat(userId, query)
       chatId = newChat.id
@@ -165,8 +192,10 @@ const pdf = async (req: Request, res: Response) => {
       text:   answer,
       chatId: chatId ?? null,
       meta: {
-        source: filterSource ?? "all",
-        filter: metadataFilter ?? null,
+        source:          filterSource ?? "all",
+        filter:          metadataFilter ?? null,
+        repoTreeInjected: !!repoContext,
+        structuralQuery:  isStructural ?? false,
       },
     })
 
