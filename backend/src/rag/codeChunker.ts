@@ -163,6 +163,26 @@ function chunkConfigFile(content: string, filePath: string): string[] {
 }
 
 // ─────────────────────────────────────────────────────────────
+// EXTRACT EXTENSION FROM FILENAME ONLY (not full path)
+// dotIdx > 0 guards against hidden files like '.eslintrc'
+// where the dot is at position 0 — those have no real extension.
+// ─────────────────────────────────────────────────────────────
+
+export function extractExt(filePath: string): { ext: string; compoundExt: string } {
+  const fileName    = filePath.split('/').pop() ?? ''
+  const dotIdx      = fileName.lastIndexOf('.')
+  const ext         = dotIdx > 0 ? fileName.slice(dotIdx).toLowerCase() : ''
+
+  // Compound ext: 'file.min.js' → '.min.js', 'file.env.example' → '.env.example'
+  const parts       = fileName.split('.')
+  const compoundExt = parts.length > 2
+    ? ('.' + parts.slice(1).join('.')).toLowerCase()
+    : ''
+
+  return { ext, compoundExt }
+}
+
+// ─────────────────────────────────────────────────────────────
 // MAIN EXPORT
 // ─────────────────────────────────────────────────────────────
 

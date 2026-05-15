@@ -1,5 +1,5 @@
 import { embedChunks } from './embedder.js'
-import { chunkCodeContent } from './codeChunker.js'
+import { chunkCodeContent, extractExt } from './codeChunker.js'
 import { getUserGithubToken } from '../services/githubOAuthService.js'
 
 // ─────────────────────────────────────────────────────────────
@@ -37,13 +37,16 @@ const SKIP_DIR_SEGMENTS = new Set([
   '.yarn', '.pnp',
 ])
 
+// NOTE: compound extensions like '.min.js' and '.min.css' are checked
+// via compoundExt in shouldSkipPath — lastIndexOf('.') alone won't catch them.
 const SKIP_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff',
   '.exe', '.dll', '.so', '.dylib', '.bin', '.wasm',
   '.zip', '.tar', '.gz', '.rar', '.7z',
   '.mp4', '.mp3', '.wav', '.avi', '.mov', '.pdf',
   '.csv', '.parquet', '.sqlite', '.db',
-  '.min.js', '.min.css', '.map',
+  '.min.js', '.min.css',  // matched via compoundExt
+  '.map',
   '.ttf', '.woff', '.woff2', '.eot',
   '.lock',   // covers yarn.lock, poetry.lock, etc. by extension
 ])
@@ -58,9 +61,11 @@ const KEEP_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs',
   '.java', '.cpp', '.c', '.cs', '.rb', '.php', '.swift',
   '.kt', '.scala', '.vue', '.svelte',
-  '.json', '.yaml', '.yml', '.toml', '.env.example',
+  '.json', '.yaml', '.yml', '.toml',
   '.md', '.mdx', '.txt', '.rst',
   '.html', '.css', '.scss', '.sass',
+  // compound: matched via compoundExt
+  '.env.example',
 ])
 
 const MAX_FILE_SIZE = 500_000  // 500 KB
@@ -68,16 +73,35 @@ const MAX_FILE_SIZE = 500_000  // 500 KB
 /**
  * Returns true if the file should be skipped.
  * Called on the raw tree BEFORE fetching any content.
- * 
+ *
  * Key optimisation: checks every path segment, so a file like
  * `foo/node_modules/lodash/index.js` is rejected on the segment
  * `node_modules` without ever touching the GitHub Contents API.
+ *
+ * FIX 1: ext is derived from filename only (not full path), so dots
+ *         in directory names (e.g. `my.package/src/index.ts`) don't
+ *         corrupt the extension.
+ *
+ * FIX 2: dotIdx > 0 guards against hidden files like `.eslintrc`
+ *         where the leading dot is not an extension separator.
+ *
+ * FIX 3: compoundExt is checked separately so entries like `.min.js`
+ *         and `.env.example` actually match — lastIndexOf('.') alone
+ *         would reduce `file.min.js` to `.js` and miss them.
  */
 function shouldSkipPath(filePath: string, size = 0): boolean {
   const parts    = filePath.split('/')
   const fileName = parts[parts.length - 1] ?? ''
-  const dotIdx   = fileName.lastIndexOf('.')
-  const ext      = dotIdx !== -1 ? fileName.slice(dotIdx).toLowerCase() : ''
+
+  // FIX 1 + 2: ext from filename only; dotIdx > 0 skips hidden-file dots
+  const dotIdx      = fileName.lastIndexOf('.')
+  const ext         = dotIdx > 0 ? fileName.slice(dotIdx).toLowerCase() : ''
+
+  // FIX 3: compound extension — 'file.min.js' → '.min.js'
+  const nameParts   = fileName.split('.')
+  const compoundExt = nameParts.length > 2
+    ? ('.' + nameParts.slice(1).join('.')).toLowerCase()
+    : ''
 
   // Reject by size first — cheapest check
   if (size > MAX_FILE_SIZE) return true
@@ -88,9 +112,9 @@ function shouldSkipPath(filePath: string, size = 0): boolean {
     if (seg.startsWith('.') && seg !== '.github')      return true
   }
 
-  if (SKIP_FILENAMES.has(fileName))                    return true
-  if (SKIP_EXTENSIONS.has(ext))                        return true
-  if (!KEEP_EXTENSIONS.has(ext))                       return true
+  if (SKIP_FILENAMES.has(fileName))                                        return true
+  if (SKIP_EXTENSIONS.has(ext) || SKIP_EXTENSIONS.has(compoundExt))       return true
+  if (!KEEP_EXTENSIONS.has(ext) && !KEEP_EXTENSIONS.has(compoundExt))     return true
 
   return false
 }
@@ -110,7 +134,7 @@ async function buildHeaders(userId: string): Promise<Record<string, string>> {
   // 1. Try the OAuth token the user connected via /github/start
   try {
     const userToken = await getUserGithubToken(userId)
-    console.log("userToken",userToken)
+    console.log("userToken", userToken)
     if (userToken) {
       headers['Authorization'] = `Bearer ${userToken}`
       return headers
@@ -335,7 +359,7 @@ export async function indexGithubRepo(
   console.log(`\n🐙 Indexing GitHub repo: ${repoName}`)
 
   // Build auth headers once — reused for every request in this job
-  const headers = await buildHeaders(userId)
+  const headers  = await buildHeaders(userId)
   const isAuthed = Boolean(headers['Authorization'])
   console.log(`  🔑 Auth: ${isAuthed ? 'token present (5 000 req/hr)' : 'no token (60 req/hr)'}`)
 
@@ -360,13 +384,17 @@ export async function indexGithubRepo(
   const fileContents = await fetchFilesInBatches(owner, repo, validFiles, headers)
 
   // 4. Chunk all files
+  // FIX 4: use extractExt (filename only, compound-aware) instead of
+  //         lastIndexOf on the full path — dots in directory names like
+  //         `my.package/src/index.ts` would otherwise corrupt the ext.
   console.log('  ✂️  Chunking files...')
   const allChunks: { text: string; filePath: string }[] = []
 
   for (const { file, content } of fileContents) {
-    const dotIdx = file.path.lastIndexOf('.')
-    const ext    = dotIdx !== -1 ? file.path.slice(dotIdx).toLowerCase() : ''
-    const chunks = chunkCodeContent(content, file.path, ext)
+    const { ext, compoundExt } = extractExt(file.path)
+    // prefer the compound ext for chunker type detection when it's meaningful
+    const effectiveExt = compoundExt || ext
+    const chunks       = chunkCodeContent(content, file.path, effectiveExt)
     chunks.forEach(text => allChunks.push({ text, filePath: file.path }))
   }
 
