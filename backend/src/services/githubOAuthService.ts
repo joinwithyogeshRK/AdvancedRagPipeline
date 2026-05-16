@@ -2,15 +2,18 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { ensureSupabaseUser, getPrimaryEmail } from "./userService.js";
 
-export async function getUserGithubToken(clerkUserId: string): Promise<string | null> {
+export async function getUserGithubToken(
+  clerkUserId: string
+): Promise<string | null> {
+
   const { data, error } = await supabase
-    .from('github_tokens')        // adjust table name to match yours
-    .select('access_token')
-    .eq('clerk_user_id', clerkUserId)
+    .from('users')                      // ← correct table ✅
+    .select('github_access_token')      // ← correct column ✅
+    .eq('clerk_user_id', clerkUserId)   // ← correct filter ✅
     .single()
- 
-  if (error || !data?.access_token) return null
-  return data.access_token as string
+
+  if (error || !data?.github_access_token) return null
+  return data.github_access_token
 }
 
 const STATE_TTL_MS = 10 * 60 * 1000;
