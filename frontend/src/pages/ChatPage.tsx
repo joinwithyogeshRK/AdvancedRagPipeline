@@ -49,6 +49,9 @@ const ChatPage = () => {
   const [selectedSource,  setSelectedSource]  = useState<string>("all")
   const [loadingDocs,     setLoadingDocs]     = useState(false)
   const [isIndexing,      setIsIndexing]      = useState(false)
+  const [githubConnected,  setGithubConnected]  = useState(false)
+  const [githubLogin,      setGithubLogin]      = useState<string | null>(null)
+  const [loadingGitHub,    setLoadingGitHub]    = useState(false)
 
   // ── Refs ───────────────────────────────────────────────────
   const currentResponseRef = useRef("")
@@ -72,6 +75,25 @@ const ChatPage = () => {
     if (signedIn) void fetchDocuments()
   }, [signedIn])
 
+  // ── Fetch GitHub status when signed in ──────────────────────
+  useEffect(() => {
+    if (signedIn) void fetchGithubStatus()
+  }, [signedIn])
+
+  // ── Handle github=connected redirect ─────────────────────
+
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get("github") === "connected") {
+    // clean URL
+    window.history.replaceState({}, "", window.location.pathname)
+    // refresh status
+    void fetchGithubStatus()
+  }
+  if (params.get("github_error")) {
+    window.history.replaceState({}, "", window.location.pathname)
+  }
+}, [])
   // ── API calls ──────────────────────────────────────────────
   const fetchChats = async () => {
     if (!signedIn) return
@@ -144,6 +166,21 @@ const ChatPage = () => {
       console.error("Delete source failed:", err)
       // Re-throw so the modal can show a deleting→error state if needed
       throw err
+    }
+  }
+  // ── Fetch GitHub status ──────────────────────────────────────
+  const fetchGithubStatus = async () => {
+    setLoadingGitHub(true)
+    try {
+      const res = await axios.get(`${API}/auth/github/status`, {
+        headers: await authHeaders(),
+      })
+      setGithubConnected(res.data.connected ?? false)
+      setGithubLogin(res.data.githubLogin ?? null)
+    } catch {
+      setGithubConnected(false)
+    } finally {
+      setLoadingGitHub(false)
     }
   }
 
@@ -244,6 +281,18 @@ const ChatPage = () => {
     currentResponseRef.current = "";   setCurrentQ("")
     setSelectedSource("all")
     if (signedIn) setTimeout(() => inputRef.current?.focus(), 100)
+  }
+
+  // ── GitHub OAuth ──────────────────────────────────────────────
+  const handleConnectGithub = async () => {
+    try {
+      const res = await axios.get(`${API}/auth/github/start`, {
+        headers: await authHeaders(),
+      })
+      window.location.href = res.data.url
+    } catch {
+      console.error("Failed to start GitHub OAuth")
+    }
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,7 +422,12 @@ const ChatPage = () => {
           onRecordStart={startRecording}
           onRecordStop={stopRecording}
           onIndexRepo={handleIndexRepo}
-          onDeleteSource={handleDeleteSource}   // ← NEW
+          onDeleteSource={handleDeleteSource}  
+          githubConnected={githubConnected}
+          githubLogin={githubLogin}
+          loadingGitHub={loadingGitHub}
+          onConnectGithub={handleConnectGithub}
+
         />
       </div>
     </div>
