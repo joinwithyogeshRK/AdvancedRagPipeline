@@ -13,6 +13,8 @@ export async function getUserGithubToken(
     .single()
 
   if (error || !data?.github_access_token) return null
+  console.log("lets see if token comes")
+  console.log("data.github_access_token", data.github_access_token)
   return data.github_access_token
 }
 
