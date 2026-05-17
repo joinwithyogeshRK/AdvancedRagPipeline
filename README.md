@@ -10,6 +10,8 @@ The backend handles ingestion, chunking, embeddings, hybrid retrieval, reranking
 
 Ready to deploy? See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete guides on deploying to Vercel, Render, Railway, and more.
 
+> The repository is maintained with a CI workflow that validates backend build and docs updates before merge.
+
 For backend-specific setup, see `backend/.env.example` and `backend/README.md`.
 
 ## RAG Pipeline
