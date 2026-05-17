@@ -93,6 +93,8 @@ router.delete("/delete", async (req: Request, res: Response) => {
     console.log(`🗑  Delete — user: ${userId}  source: ${source}  type: ${isRepo ? "repo" : "pdf"}`)
 
     // ── 1. Collect Pinecone vector IDs ──────────────────────
+    // The query uses a zero vector plus a metadata filter to identify all vectors
+    // belonging to this source for the current user.
     const queryRes = await index.query({
       vector:          new Array(1024).fill(0),
       topK:            10000,
