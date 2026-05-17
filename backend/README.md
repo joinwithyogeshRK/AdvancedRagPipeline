@@ -34,6 +34,8 @@ npm install
 npm run build
 ```
 
+> Run `npm install` and `npm run dev` from the `backend` directory so the backend dependencies are installed in the correct package context.
+
 4. Start the development server:
 
 ```bash
@@ -58,3 +60,5 @@ Use `backend/.env.example` to configure:
 - Pinecone API settings
 - Cohere / Groq keys
 - Frontend base URL
+
+> Note: Environment variable names are case-sensitive. Copy `.env.example` exactly and fill in values before starting the backend.
