@@ -2,6 +2,8 @@
 
 Oracle is a full-stack RAG assistant for asking grounded questions over uploaded documents and GitHub repositories.
 
+> See `CONTRIBUTING.md` for the project commit style, documentation expectations, and collaboration workflow.
+
 The backend handles ingestion, chunking, embeddings, hybrid retrieval, reranking, answer generation, and evaluation. The frontend provides the chat and repository indexing experience.
 
 ## 🚀 Deployment
@@ -40,6 +42,7 @@ Oracle is built as a clean two-tier architecture with a focused backend for retr
   - Ingestion, text chunking, embedding creation, retrieval, reranking, and evaluation.
   - Contains vector search, BM25 hybrid ranking, and grounding logic.
 - `backend/src/routes`
+  - REST endpoints for document lifecycle, GitHub indexing, history, PDF uploads, and transcription.
   - REST API endpoints for documents, GitHub indexing, chat history, PDF uploads, and transcription.
 - `backend/src/services`
   - Integration helpers for Clerk auth, Supabase storage, OCR, GitHub OAuth, and repo tree traversal.
