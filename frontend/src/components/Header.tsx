@@ -32,7 +32,7 @@ export const Header = ({
 
   return (
     <motion.header
-      className="glass-panel mb-3 flex shrink-0 flex-col gap-3 rounded-2xl border border-border/80 px-3 py-3 sm:mb-5 sm:px-4 sm:py-3.5"
+      className="mb-3 flex shrink-0 flex-col gap-3 px-3 py-3 sm:mb-5 sm:px-4 sm:py-3.5"
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
