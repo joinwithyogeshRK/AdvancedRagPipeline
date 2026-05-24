@@ -4,6 +4,7 @@ import {
   getUserChats,
   getChatMessagesForUser,
   deleteChat,
+  updateChatTitle,
 } from "../services/historyService.js";
 
 const router = Router();
@@ -40,6 +41,25 @@ router.delete("/chats/:chatId", async (req, res) => {
     res.json({ message: "Chat deleted" });
   } catch {
     res.status(500).json({ error: "Failed to delete chat" });
+  }
+});
+
+router.patch("/chats/:chatId", async (req, res) => {
+  try {
+    const title = typeof req.body?.title === "string" ? req.body.title : "";
+    const chat = await updateChatTitle(
+      req.params.chatId,
+      req.supabaseUserId!,
+      title,
+    );
+
+    if (!chat) {
+      return res.status(404).json({ error: "Chat not found" });
+    }
+
+    res.json({ chat });
+  } catch {
+    res.status(400).json({ error: "Failed to update chat" });
   }
 });
 

@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion"
-import { MessageSquare, PanelLeftClose, Plus, Trash2, X } from "lucide-react"
+import { Check, MessageSquare, MoreHorizontal, PanelLeftClose, Pencil, Plus, Trash2, X } from "lucide-react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 
 interface Chat {
@@ -18,6 +19,7 @@ interface Props {
   onNewChat: () => void
   onSelectChat: (id: string) => void
   onDeleteChat: (id: string, e: React.MouseEvent) => void
+  onRenameChat: (id: string, title: string) => Promise<void>
 }
 
 const formatDate = (iso: string) =>
@@ -38,7 +40,34 @@ export const Sidebar = ({
   onNewChat,
   onSelectChat,
   onDeleteChat,
+  onRenameChat,
 }: Props) => {
+  const [editingChatId, setEditingChatId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState("")
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+
+  const beginRename = (chat: Chat, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingChatId(chat.id)
+    setDraftTitle(chat.title)
+    setOpenMenuId(null)
+  }
+
+  const saveRename = async (chatId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const title = draftTitle.trim()
+    if (!title) return
+    await onRenameChat(chatId, title)
+    setEditingChatId(null)
+    setDraftTitle("")
+  }
+
+  const cancelRename = (e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    setEditingChatId(null)
+    setDraftTitle("")
+  }
+
   const aside = (
     <motion.aside
       className={cn(
@@ -121,20 +150,100 @@ export const Sidebar = ({
                 >
                   <div className="flex items-center gap-2.5">
                     <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold text-foreground">{chat.title}</p>
-                      <p className="mt-0.5 font-mono text-[10px] font-bold text-muted-foreground/80">
-                        {formatDate(chat.created_at)}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => onDeleteChat(chat.id, e)}
-                      className="rounded-md p-1 text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                      title="Delete chat"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    {editingChatId === chat.id ? (
+                      <div className="min-w-0 flex-1">
+                        <input
+                          value={draftTitle}
+                          onChange={(e) => setDraftTitle(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveRename(chat.id)
+                            if (e.key === "Escape") cancelRename()
+                          }}
+                          className="h-8 w-full rounded-lg border border-accent/35 bg-background px-2 text-sm font-semibold text-foreground outline-none ring-2 ring-accent/10"
+                          autoFocus
+                          maxLength={80}
+                        />
+                        <div className="mt-1 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={(e) => void saveRename(chat.id, e)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-accent-foreground transition-opacity hover:opacity-90"
+                            aria-label="Save chat name"
+                            title="Save"
+                          >
+                            <Check className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={cancelRename}
+                            className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            aria-label="Cancel rename"
+                            title="Cancel"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-semibold leading-snug text-foreground">
+                          {chat.title}
+                        </p>
+                        <p className="mt-1 font-mono text-[10px] font-semibold text-muted-foreground/75">
+                          {formatDate(chat.created_at)}
+                        </p>
+                      </div>
+                    )}
+                    {editingChatId !== chat.id && (
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenMenuId((id) => (id === chat.id ? null : chat.id))
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-muted hover:text-foreground"
+                          aria-label="Chat actions"
+                          aria-expanded={openMenuId === chat.id}
+                          title="Chat actions"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                        <AnimatePresence>
+                          {openMenuId === chat.id && (
+                            <motion.div
+                              className="absolute right-0 top-full z-30 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-float)]"
+                              initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                              transition={{ duration: 0.14 }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => beginRename(chat, e)}
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                              >
+                                <Pencil className="h-3.5 w-3.5 text-accent" />
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  setOpenMenuId(null)
+                                  onDeleteChat(chat.id, e)
+                                }}
+                                className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </button>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    )}
                   </div>
                   {activeChatId === chat.id && (
                     <div className="absolute bottom-[20%] left-0 top-[20%] w-0.5 rounded-r bg-accent" />

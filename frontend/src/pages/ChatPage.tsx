@@ -202,6 +202,33 @@ const ChatPage = () => {
     }
   }
 
+  const renameChat = async (id: string, title: string) => {
+    const cleanTitle = title.trim()
+    if (!cleanTitle) return
+
+    const previousChats = chats
+    setChats((prev) =>
+      prev.map((chat) =>
+        chat.id === id ? { ...chat, title: cleanTitle.slice(0, 80) } : chat
+      )
+    )
+
+    try {
+      const res = await axios.patch(
+        `${API}/history/chats/${id}`,
+        { title: cleanTitle },
+        { headers: await authHeaders() }
+      )
+      if (res.data?.chat) {
+        setChats((prev) =>
+          prev.map((chat) => (chat.id === id ? res.data.chat : chat))
+        )
+      }
+    } catch {
+      setChats(previousChats)
+    }
+  }
+
   const handleDeleteSource = async (source: string) => {
     try {
       await axios.delete(`${API}/documents/delete`, {
@@ -430,6 +457,7 @@ const ChatPage = () => {
           onNewChat={handleNewChat}
           onSelectChat={loadChat}
           onDeleteChat={deleteChat}
+          onRenameChat={renameChat}
         />
       )}
 
@@ -443,6 +471,7 @@ const ChatPage = () => {
           onNewChat={handleNewChat}
           onSelectChat={loadChat}
           onDeleteChat={deleteChat}
+          onRenameChat={renameChat}
         />
       )}
 
@@ -458,6 +487,7 @@ const ChatPage = () => {
             onNewChat={handleNewChat}
             onSelectChat={loadChat}
             onDeleteChat={deleteChat}
+            onRenameChat={renameChat}
           />
         )}
 

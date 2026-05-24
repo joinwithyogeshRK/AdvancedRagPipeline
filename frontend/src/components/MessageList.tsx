@@ -80,8 +80,16 @@ type AnswerPart =
   | { type: "text"; value: string }
   | { type: "code"; value: string; language?: string }
 
-const fencePattern = /```([^\n`]*)\n?([\s\S]*?)```/g
 const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*)/g
+const languageAliases: Record<string, string> = {
+  js: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  tsx: "typescript",
+  sh: "bash",
+  shell: "bash",
+  html: "xml",
+}
 
 function normalizeAnswer(answer: string) {
   let next = answer.trim()
@@ -106,17 +114,38 @@ function parseAnswer(answer: string): AnswerPart[] {
   const cleanedAnswer = normalizeAnswer(answer)
   let cursor = 0
 
-  for (const match of cleanedAnswer.matchAll(fencePattern)) {
-    const index = match.index ?? 0
-    if (index > cursor) {
-      parts.push({ type: "text", value: cleanedAnswer.slice(cursor, index) })
+  while (cursor < cleanedAnswer.length) {
+    const fenceStart = cleanedAnswer.indexOf("```", cursor)
+    if (fenceStart === -1) break
+
+    if (fenceStart > cursor) {
+      parts.push({ type: "text", value: cleanedAnswer.slice(cursor, fenceStart) })
     }
-    parts.push({
-      type: "code",
-      language: match[1]?.trim().split(/\s+/)[0],
-      value: match[2]?.replace(/\n$/, "") ?? "",
-    })
-    cursor = index + match[0].length
+
+    let codeStart = fenceStart + 3
+    const lineEnd = cleanedAnswer.indexOf("\n", codeStart)
+    const infoLine =
+      lineEnd === -1 ? cleanedAnswer.slice(codeStart) : cleanedAnswer.slice(codeStart, lineEnd)
+    const infoMatch = infoLine.match(/^\s*([A-Za-z0-9_+.-]+)?\s*(.*)$/)
+    const language = infoMatch?.[1]
+    const inlineCode = infoMatch?.[2]?.trimStart() ?? ""
+
+    if (lineEnd === -1) {
+      parts.push({ type: "code", language, value: inlineCode })
+      cursor = cleanedAnswer.length
+      break
+    }
+
+    codeStart = lineEnd + 1
+    const fenceEnd = cleanedAnswer.indexOf("```", codeStart)
+    const rawCode =
+      fenceEnd === -1
+        ? cleanedAnswer.slice(codeStart)
+        : cleanedAnswer.slice(codeStart, fenceEnd)
+    const value = `${inlineCode ? `${inlineCode}\n` : ""}${rawCode}`.replace(/\n$/, "")
+
+    parts.push({ type: "code", language, value })
+    cursor = fenceEnd === -1 ? cleanedAnswer.length : fenceEnd + 3
   }
 
   if (cursor < cleanedAnswer.length) {
@@ -136,7 +165,7 @@ function escapeHtml(value: string) {
 }
 
 function highlightCode(code: string, language?: string) {
-  const lang = language?.toLowerCase()
+  const lang = languageAliases[language?.toLowerCase() ?? ""] ?? language?.toLowerCase()
 
   try {
     if (lang && hljs.getLanguage(lang)) {
