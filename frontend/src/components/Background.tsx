@@ -1,12 +1,16 @@
 import AnoAI from "@/components/ui/animated-shader-background"
 import { useTheme } from "@/context/theme"
 
-export const Background = () => {
+interface BackgroundProps {
+  showShader?: boolean
+}
+
+export const Background = ({ showShader = true }: BackgroundProps) => {
   const { theme } = useTheme()
 
   return (
     <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-background" aria-hidden>
-      {theme === "dark" ? (
+      {theme === "dark" && showShader ? (
         <div className="absolute inset-0">
           <AnoAI />
         </div>
