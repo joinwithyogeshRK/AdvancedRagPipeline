@@ -164,6 +164,15 @@ export const parseIsCodeMarkdown = (
       if (block.startsWith("<table") || block.includes("<table")) {
         const table = parseHtmlTable(block, page);
         if (table) {
+          // If we just entered the symbols section, treat the table rows as
+          // symbol entries instead of a data table.
+          if (inSymbolsSection) {
+            const syms = symbolsFromTable(table);
+            if (syms.length > 0) {
+              blocks.push(...syms);
+              continue;
+            }
+          }
           blocks.push(table);
           continue;
         }
@@ -174,6 +183,13 @@ export const parseIsCodeMarkdown = (
       if (isPipeTable(block)) {
         const table = parsePipeTable(block, page);
         if (table) {
+          if (inSymbolsSection) {
+            const syms = symbolsFromTable(table);
+            if (syms.length > 0) {
+              blocks.push(...syms);
+              continue;
+            }
+          }
           blocks.push(table);
           continue;
         }
@@ -362,11 +378,43 @@ const stripMarkdownDecoration = (block: string): string =>
 const matchAmendmentHeader = (
   block: string,
 ): { no: string; date?: string } | undefined => {
-  // "AMENDMENT NO. 2 SEPTEMBER 2005" or "AMENDMENT NO 3 AUGUST 2007"
-  const m = block.match(/^AMENDMENT\s+NO\.?\s+(\d+)\s+([A-Z]+\s+\d{4})/im);
-  if (!m) return undefined;
-  const date = parseAmendmentDate(m[2] ?? "");
-  return { no: `No. ${m[1]}`, ...(date !== undefined ? { date } : {}) };
+  // Header variants seen in the wild:
+  //   "AMENDMENT NO. 2 SEPTEMBER 2005"      (one line, dated)
+  //   "AMENDMENT NO. 2"                     (one line, no date)
+  //   "AMENDMENT NO.3 AUGUST 2007"          (no space before number)
+  //   "AMENDMENT NO. I JUNI .1"             (OCR'd; number garbled)
+  // Match the number+optional-date form first; fall back to bare number.
+  // Also accept the OCR'd "NO. I" → treat as "No. 1".
+  const dated = block.match(
+    /^AMENDMENT\s+NO\.?\s*([\dIVXLC]+)\s+([A-Z]+\.?\s*\d{0,4})/im,
+  );
+  if (dated) {
+    const num = romanOrDigit(dated[1] ?? "");
+    const date = parseAmendmentDate(dated[2] ?? "");
+    return { no: `No. ${num}`, ...(date !== undefined ? { date } : {}) };
+  }
+  const bare = block.match(/^AMENDMENT\s+NO\.?\s*([\dIVXLC]+)\s*$/im);
+  if (bare) {
+    const num = romanOrDigit(bare[1] ?? "");
+    return { no: `No. ${num}` };
+  }
+  return undefined;
+};
+
+const romanOrDigit = (s: string): string => {
+  if (/^\d+$/.test(s)) return s;
+  // Tiny roman parser for I, II, III, IV, V — enough for amendment numbers.
+  const map: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100 };
+  let total = 0;
+  let prev = 0;
+  for (let i = s.length - 1; i >= 0; i--) {
+    const ch = s[i];
+    if (!ch) continue;
+    const v = map[ch.toUpperCase()] ?? 0;
+    if (v < prev) total -= v;
+    else { total += v; prev = v; }
+  }
+  return String(total || 1);
 };
 
 const parseAmendmentDate = (raw: string): string | undefined => {
@@ -442,7 +490,19 @@ const matchClause = (
   if (!number || !rest) return undefined;
   // Reject "table-like" numerics e.g. "1 2 3 4 5" — require non-numeric chars in the rest.
   if (!/[A-Za-z]/.test(rest)) return undefined;
-  return splitTitleAndBody(number, rest);
+
+  const result = splitTitleAndBody(number, rest);
+
+  // Reject TOC entries. A TOC line is "13.5 Curing" with no real body —
+  // the body is just the title phrase or a stray page number. Real clauses
+  // have prose: at least one period, OR length >= 80 chars.
+  const bodyTrimmed = result.text.trim();
+  const looksLikeProse =
+    bodyTrimmed.length >= 80 ||
+    /[.!?]\s|[.!?]$/.test(bodyTrimmed) || // ends or has internal sentence break
+    /\bshall\b|\bshould\b|\bmay\b/i.test(bodyTrimmed); // IS-code modal verbs
+  if (!looksLikeProse) return undefined;
+  return result;
 };
 
 const splitTitleAndBody = (
@@ -509,6 +569,32 @@ const normalizeSymbol = (raw: string): string =>
   raw
     .replace(/\\?_?\{([^}]+)\}/g, "_$1") // f_{ck} → f_ck
     .replace(/\\([a-zA-Z]+)/g, "$1");    // \sigma → sigma
+
+// Convert a 2-column table (symbol | definition) into SymbolBlocks.
+// Used when we detect a table inside the SYMBOLS section (Clause 4) — LlamaParse
+// renders the original two-column glossary as a markdown table, not as line
+// entries.
+const symbolsFromTable = (table: TableBlock): SymbolBlock[] => {
+  const out: SymbolBlock[] = [];
+  for (const row of table.rows) {
+    // The data structure puts the first cell as label and rest as cells; in
+    // a 2-col table, label is the symbol, cells[0] is the definition.
+    const symbolRaw = (row.label ?? row.cells[0] ?? "").trim();
+    const defRaw = (row.label !== undefined ? row.cells[0] : row.cells[1]) ?? "";
+    const definition = defRaw
+      .replace(/^[-—–\s]+/, "")
+      .trim();
+    if (!symbolRaw || !definition) continue;
+    if (symbolRaw.length > 16) continue; // not a symbol
+    if (!/[A-Za-zα-ωΑ-Ω]/.test(symbolRaw)) continue;
+    out.push({
+      kind: "symbol",
+      symbol: normalizeSymbol(symbolRaw),
+      definition,
+    });
+  }
+  return out;
+};
 
 // ---------- Equations ----------
 
@@ -734,13 +820,15 @@ const parseAmendmentLines = (
   amendmentDate: string | undefined,
 ): AmendmentBlock[] => {
   const out: AmendmentBlock[] = [];
-  // Amendments come as bullet lines like:
-  //   "(Page 13, clause 5.2.1.1, line 1) — Substitute 'IS 3812 (Part 1)' for 'Grade 1 of IS 3812'."
-  //   "(Page 13, clause 5.2.1.2 and corresponding Note) — Substitute the following for the existing:"
-  //   "(Page 15, clause 5.6.3) — Add the following after the clause and renumber the existing clause '5.7' as '5.8'."
-  //   "(Page 25, clause 10.3.3, line 4) — Delete the word 'and'."
+  // Amendments come as bullet lines like (parens OR brackets accepted):
+  //   "(Page 13, clause 5.2.1.1, line 1) — Substitute 'IS 3812 (Part 1)' for ..."
+  //   "[Page 17, clause 7.1 (see also Amendment No. 1)] - In the informal..."
+  //   "[Page 30, Table 11, col 3 (see also Amendment No. 1)] — Substitute ..."
+  //   "(Page 15, clause 5.6.3) — Add the following after the clause and..."
+  // We accept either [...] or (...) bracketing, allow a "(see also Amendment No. X)"
+  // tail inside, and don't require the leading dash to be em-dash.
   const itemPattern =
-    /\(\s*Page\s+(\d+)\s*,\s*(?:clause|Annex|Table|Foreword|para)\s+([\w\-.()]+)(?:\s*,\s*line\s+(\d+))?[^)]*\)\s*[—–\-]\s*([\s\S]+?)(?=\n\s*\(\s*Page\s+\d+\s*,|\n*$)/gi;
+    /[\(\[]\s*Page\s+(\d+)\s*,\s*(?:clause|Annex|Table|Foreword|para|col)\s+([\w\-.()]+)(?:\s*,\s*line\s+(\d+))?[^\)\]]*[\)\]]\s*[—–\-]\s*([\s\S]+?)(?=\n\s*[\(\[]\s*Page\s+\d+\s*,|\n*$)/gi;
 
   let m: RegExpExecArray | null;
   while ((m = itemPattern.exec(block)) !== null) {

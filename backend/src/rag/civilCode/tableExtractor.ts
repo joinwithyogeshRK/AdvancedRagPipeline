@@ -37,6 +37,10 @@ export const extractTables = (ast: IsCodeAst): TableExtractionOutput => {
 
   for (const block of ast.blocks) {
     if (block.kind === "table") {
+      // Skip tables we couldn't identify (no "Table N" caption). These are
+      // almost always document boilerplate — committee membership lists,
+      // amendment metadata pages, etc. — not real data tables.
+      if (!block.number || block.number === "Table ?") continue;
       const r = extractFromTable(ast, block);
       chunks.push(...r.chunks);
       rowRecords.push(...r.rows);
