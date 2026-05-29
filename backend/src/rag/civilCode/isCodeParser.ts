@@ -493,15 +493,31 @@ const matchClause = (
 
   const result = splitTitleAndBody(number, rest);
 
-  // Reject TOC entries. A TOC line is "13.5 Curing" with no real body —
-  // the body is just the title phrase or a stray page number. Real clauses
-  // have prose: at least one period, OR length >= 80 chars.
+  // Distinguish three cases:
+  //   (a) Real clause with prose body in same block:
+  //         "5.1 Cement\nThe cement used shall be..." → keep, body has prose
+  //   (b) Heading-only clause (body will arrive as continuation blocks):
+  //         "26.1.1 General" → keep with empty body; next blocks append
+  //   (c) TOC entry with page number masquerading as body:
+  //         "13.5 Curing" followed by separate "27" block. Same shape as (b)
+  //         from the regex's view, but we can detect it via the FOLLOW-UP block.
+  //
+  // Approach: reject pure-numeric bodies (page numbers leaking in). Accept
+  // everything else — the orchestrator's continuation logic will fold real
+  // prose into (b), and lone TOC entries will end up with empty bodies that
+  // we filter at chunking time.
   const bodyTrimmed = result.text.trim();
+  if (/^\d{1,4}$/.test(bodyTrimmed)) return undefined; // pure page number
+  // If the body is short AND looks like a title (no periods, no shall/should),
+  // emit a heading-only clause with empty text — continuation logic will fill it.
   const looksLikeProse =
     bodyTrimmed.length >= 80 ||
-    /[.!?]\s|[.!?]$/.test(bodyTrimmed) || // ends or has internal sentence break
-    /\bshall\b|\bshould\b|\bmay\b/i.test(bodyTrimmed); // IS-code modal verbs
-  if (!looksLikeProse) return undefined;
+    /[.!?]\s|[.!?]$/.test(bodyTrimmed) ||
+    /\bshall\b|\bshould\b|\bmay\b/i.test(bodyTrimmed);
+  if (!looksLikeProse) {
+    // Heading-only — body becomes title, real body fills via continuation.
+    return { number, title: bodyTrimmed, text: "" };
+  }
   return result;
 };
 

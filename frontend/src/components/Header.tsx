@@ -1,5 +1,6 @@
 import { motion } from "framer-motion"
-import { Menu, Plus } from "lucide-react"
+import { Menu, Plus, Calculator } from "lucide-react"
+import { Link } from "react-router-dom"
 import { Show, UserButton } from "@clerk/react"
 import { AuthSection } from "./AuthSection"
 import { GithubOAuth } from "./GithubOAuth"
@@ -80,6 +81,15 @@ export const Header = ({
           >
             <Plus className="h-4 w-4" />
           </motion.button>
+
+          <Link
+            to="/mix-design"
+            className={iconBtn}
+            aria-label="Concrete mix design"
+            title="Concrete mix design (IS 10262:2019)"
+          >
+            <Calculator className="h-4 w-4" />
+          </Link>
 
           <ThemeToggle className="h-9 w-9" />
 

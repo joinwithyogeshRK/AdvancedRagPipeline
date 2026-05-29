@@ -42,6 +42,9 @@ export const chunkClauses = (ast: IsCodeAst): ChunkingOutput => {
   for (const block of ast.blocks) {
     switch (block.kind) {
       case "clause":
+        // Skip clauses with no body — they're either TOC entries that never
+        // got prose attached, or duplicate heading markers.
+        if (block.text.trim().length < 20) break;
         emitClause(ast, block, chunks, clauseRows, symbolsInDoc, cross);
         break;
       case "annex_clause":

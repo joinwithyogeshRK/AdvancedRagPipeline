@@ -59,9 +59,23 @@ export const deleteAllForDoc = async (docId: string) => {
 
 export const insertClauses = async (rows: ClauseRow[]) => {
   if (rows.length === 0) return;
-  // Chunk to avoid Supabase row-size limits (~1MB per request).
-  for (const batch of batches(rows, 500)) {
-    const { error } = await supabase.from("is_code_clauses").insert(batch);
+  // Dedupe by (doc_id, clause_number): same clause may appear multiple times
+  // in the AST (TOC vs body vs amendment refs). Keep the row with the longest
+  // body — that's almost always the real body clause.
+  const byKey = new Map<string, ClauseRow>();
+  for (const r of rows) {
+    const key = `${r.doc_id}|${r.clause_number}`;
+    const existing = byKey.get(key);
+    if (!existing || r.body.length > existing.body.length) {
+      byKey.set(key, r);
+    }
+  }
+  const deduped = [...byKey.values()];
+  // Upsert on the unique constraint to be safe even if other writers exist.
+  for (const batch of batches(deduped, 500)) {
+    const { error } = await supabase
+      .from("is_code_clauses")
+      .upsert(batch, { onConflict: "doc_id,clause_number" });
     if (error) throw new Error(`insertClauses failed: ${error.message}`);
   }
 };
@@ -76,8 +90,20 @@ export const insertTableRows = async (rows: TableRowRecord[]) => {
 
 export const insertSymbols = async (rows: SymbolRow[]) => {
   if (rows.length === 0) return;
-  for (const batch of batches(rows, 500)) {
-    const { error } = await supabase.from("is_code_symbols").insert(batch);
+  // Dedupe by (doc_id, symbol) — same symbol may be listed twice if the
+  // glossary appears once per region or under amendments.
+  const byKey = new Map<string, SymbolRow>();
+  for (const r of rows) {
+    const key = `${r.doc_id}|${r.symbol}`;
+    const existing = byKey.get(key);
+    if (!existing || r.definition.length > existing.definition.length) {
+      byKey.set(key, r);
+    }
+  }
+  for (const batch of batches([...byKey.values()], 500)) {
+    const { error } = await supabase
+      .from("is_code_symbols")
+      .upsert(batch, { onConflict: "doc_id,symbol" });
     if (error) throw new Error(`insertSymbols failed: ${error.message}`);
   }
 };
