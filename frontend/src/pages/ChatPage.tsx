@@ -190,10 +190,30 @@ const ChatPage = () => {
     if (!signedIn) return
     setLoadingDocs(true)
     try {
-      const res = await axios.get(`${API}/documents/list`, {
-        headers: await authHeaders(),
-      })
-      setDocuments(res.data.documents ?? [])
+      // Per-user uploads + shared civil-code library, merged into one list.
+      // Civil codes are surfaced with source="civil:${doc_id}" so the existing
+      // filter UI works unchanged, and the backend's /query route routes them
+      // to the civil pipeline based on the prefix.
+      const [docsRes, civilRes] = await Promise.allSettled([
+        axios.get(`${API}/documents/list`, { headers: await authHeaders() }),
+        axios.get(`${API}/civil/codes`,    { headers: await authHeaders() }),
+      ])
+
+      const userDocs: Document[] =
+        docsRes.status === "fulfilled"
+          ? (docsRes.value.data.documents ?? [])
+          : []
+
+      type CivilCode = { doc_id: string; title: string; ingested_at: string }
+      const civilDocs: Document[] =
+        civilRes.status === "fulfilled"
+          ? ((civilRes.value.data.codes ?? []) as CivilCode[]).map((c) => ({
+              source: `civil:${c.doc_id}`,
+              uploadedAt: c.ingested_at ? new Date(c.ingested_at).getTime() : 0,
+            }))
+          : []
+
+      setDocuments([...civilDocs, ...userDocs])
     } catch {
       setDocuments([])
     } finally {

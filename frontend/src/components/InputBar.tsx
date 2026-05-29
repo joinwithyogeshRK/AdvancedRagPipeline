@@ -188,11 +188,16 @@ function SourceChip({
   nudge?: boolean
 }) {
   const isRepo = source.startsWith("github:")
+  const isCivil = source.startsWith("civil:")
+  // Civil-code docs are part of the shared library — users can't delete them.
+  const canDelete = !isCivil
   const label = isRepo
     ? source.replace("github:", "").slice(0, 22)
-    : source.length > 22
-      ? `${source.slice(0, 20)}…`
-      : source
+    : isCivil
+      ? source.replace("civil:", "").replace(/_/g, " ").slice(0, 22)
+      : source.length > 22
+        ? `${source.slice(0, 20)}…`
+        : source
 
   return (
     <motion.div
@@ -218,19 +223,25 @@ function SourceChip({
           isActive ? "text-accent" : nudge ? "text-accent/70" : "text-muted-foreground"
         )}
       >
-        {isRepo ? <GithubIcon className="h-2.5 w-2.5 opacity-80" /> : <FileText className="h-2.5 w-2.5 shrink-0 opacity-80" />}
+        {isRepo
+          ? <GithubIcon className="h-2.5 w-2.5 opacity-80" />
+          : isCivil
+            ? <span className="text-[9px] opacity-80">📕</span>
+            : <FileText className="h-2.5 w-2.5 shrink-0 opacity-80" />}
         <span className="truncate">{label}</span>
       </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onDelete()
-        }}
-        className="flex w-5 items-center justify-center border-l border-border text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
-      >
-        <X className="h-2.5 w-2.5" />
-      </button>
+      {canDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+          className="flex w-5 items-center justify-center border-l border-border text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      )}
     </motion.div>
   )
 }

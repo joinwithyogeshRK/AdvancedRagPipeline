@@ -10,6 +10,7 @@ import { requireClerkSession } from "./middleware/requireClerk.js";
 import documentRouter from "./routes/document.js";
 import transcribeRouter from "./routes/transcribe.js";
 import githubRouter from "./routes/github.js";          // ← ADD
+import civilCodeRouter from "./routes/civilCode.js";
 
 const defaultOrigins = [
   "https://advanced-rag-pipeline.vercel.app",
@@ -45,6 +46,10 @@ router1.use("/auth/github",      githubAuthRouter);
 router1.use("/documents",        documentRouter);
 router1.use("/transcribe",       requireClerkSession, transcribeRouter);
 router1.use("/github",           githubRouter);          // ← ADD
+// Civil-code library: /ingest/is-code (admin write) and /civil/codes (read).
+// Both prefixes mount the same router; admin gating is per-route.
+router1.use("/ingest",           requireClerkSession, civilCodeRouter);
+router1.use("/civil",            requireClerkSession, civilCodeRouter);
 
 app.listen(PORT, function (err: unknown) {
   if (err) console.log(err);

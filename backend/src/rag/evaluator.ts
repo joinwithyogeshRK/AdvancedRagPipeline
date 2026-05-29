@@ -1,6 +1,12 @@
 import Groq from 'groq-sdk'
+import { askBedrock } from './bedrock.js'
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY! })
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY ?? '' })
+
+const JUDGE_SYSTEM_PROMPT = `You are a strict RAG evaluation judge.
+Always respond with ONLY valid JSON in this exact format:
+{ "score": <number between 0 and 1>, "reason": "<one sentence>" }
+No markdown. No explanation outside JSON.`
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -23,29 +29,40 @@ export interface EvalResult {
 // ─────────────────────────────────────────────────────────────
 
 async function judgeWithGroq(prompt: string): Promise<{ score: number; reason: string }> {
-  const response = await groq.chat.completions.create({
-    model:       'llama-3.3-70b-versatile',
-    temperature: 0,        // zero temp — we want deterministic judgment
-    max_tokens:  200,
-    messages: [
-      {
-        role:    'system',
-        content: `You are a strict RAG evaluation judge.
-                  Always respond with ONLY valid JSON in this exact format:
-                  { "score": <number between 0 and 1>, "reason": "<one sentence>" }
-                  No markdown. No explanation outside JSON.`
-      },
-      {
-        role:    'user',
-        content: prompt
-      }
-    ]
-  })
+  // Primary: Bedrock Haiku. Fall back to Groq if Bedrock is unavailable.
+  let raw = ''
+  try {
+    raw = await askBedrock(
+      JUDGE_SYSTEM_PROMPT,
+      [{ role: 'user', content: prompt }],
+      { temperature: 0, maxTokens: 200 },
+    )
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.warn(`⚠️  Bedrock eval-judge failed (${msg}); falling back to Groq`)
+    try {
+      const response = await groq.chat.completions.create({
+        model:       'llama-3.3-70b-versatile',
+        temperature: 0,
+        max_tokens:  200,
+        messages: [
+          { role: 'system', content: JUDGE_SYSTEM_PROMPT },
+          { role: 'user',   content: prompt },
+        ],
+      })
+      raw = response.choices[0]?.message?.content?.trim() ?? ''
+    } catch (e2: unknown) {
+      const msg2 = e2 instanceof Error ? e2.message : String(e2)
+      console.warn(`⚠️  Groq eval-judge also failed (${msg2})`)
+      return { score: 0.5, reason: 'Both Bedrock and Groq judges failed' }
+    }
+  }
 
-  const raw = response.choices[0]?.message?.content?.trim() ?? ''
+  // Some models wrap JSON in ```json ... ``` blocks. Strip if present.
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
 
   try {
-    const parsed = JSON.parse(raw)
+    const parsed = JSON.parse(cleaned)
     return {
       score:  Math.min(1, Math.max(0, Number(parsed.score))),  // clamp 0-1
       reason: parsed.reason ?? 'No reason provided'

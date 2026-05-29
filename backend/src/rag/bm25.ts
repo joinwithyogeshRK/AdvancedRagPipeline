@@ -21,6 +21,8 @@ export interface BM25Result {
   rank: number
 }
 
+export type Tokenizer = (text: string) => string[]
+
 interface BM25Index {
   chunks: BM25Chunk[]
   tokenizedChunks: string[][]
@@ -28,28 +30,76 @@ interface BM25Index {
   avgChunkLength: number
   documentFrequency: Map<string, number>
   N: number
+  tokenizer: Tokenizer
 }
 
 // ─────────────────────────────────────────────────────────────
-// TOKENIZER
+// TOKENIZERS
 // ─────────────────────────────────────────────────────────────
 
-function tokenize(text: string): string[] {
-  return text
+// Default tokenizer — strips punctuation and lowercases. Good enough for
+// generic prose. NOT good for engineering codes where "8.2.1.2" and "f_ck"
+// must survive as single tokens (use civilCodeTokenizer for those).
+export const defaultTokenizer: Tokenizer = (text) =>
+  text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
     .split(/\s+/)
     .filter(token => token.length > 1)
+
+// Civil-code tokenizer: preserves clause numbers (8.2.1.2), symbol tokens
+// (f_ck, σ_st), IS standard references (IS 456:2000 -> 'is456:2000'), and
+// table references (Table 4 -> 'table4'). Keeps Greek letters via Unicode
+// classes. Case-insensitive; lowercased after extraction.
+//
+// Strategy: match a sequence of "interesting" patterns in priority order
+// rather than splitting + stripping. The longest match wins per position.
+const CIVIL_TOKEN_RE = new RegExp(
+  [
+    // "IS 456:2000" / "IS 3025 (Part 22)" — collapse spaces to keep as one token
+    "IS\\s*\\d{2,5}(?:\\s*\\(Part\\s*\\d+\\))?(?:\\s*:\\s*\\d{4})?",
+    // "Table 4" / "Annex B"
+    "Table\\s*\\d+",
+    "Annex\\s*[A-Z]",
+    // Clause number with optional letter suffix: 8.2.1.2, 26.5.1.1(b), B-1.1.1
+    "[A-Z]?-?\\d+(?:\\.\\d+)+(?:\\([a-z]\\))?",
+    // Symbol tokens like f_ck, σ_st, f_{ck}
+    "[A-Za-zα-ωΑ-Ω][A-Za-zα-ωΑ-Ω0-9]*_[A-Za-zα-ωΑ-Ω0-9]+",
+    // Greek single letters
+    "[α-ωΑ-Ω]",
+    // Plain words (3+ chars to drop noise)
+    "[A-Za-z][A-Za-z0-9]{2,}",
+    // Bare integers (e.g. "300", "20")
+    "\\d{2,}",
+  ].join("|"),
+  "g",
+)
+
+export const civilCodeTokenizer: Tokenizer = (text) => {
+  const out: string[] = []
+  const matches = text.matchAll(CIVIL_TOKEN_RE)
+  for (const m of matches) {
+    const token = m[0]
+      .toLowerCase()
+      .replace(/\s+/g, '')   // "Table 4" -> "table4", "IS 456:2000" -> "is456:2000"
+    if (token.length > 1) out.push(token)
+  }
+  return out
 }
 
 // ─────────────────────────────────────────────────────────────
 // BUILD INDEX
 // ─────────────────────────────────────────────────────────────
 
-export function buildBM25Index(chunks: BM25Chunk[]): BM25Index {
-  const tokenizedChunks = chunks.map(c => tokenize(c.text))
+export function buildBM25Index(
+  chunks: BM25Chunk[],
+  tokenizer: Tokenizer = defaultTokenizer,
+): BM25Index {
+  const tokenizedChunks = chunks.map(c => tokenizer(c.text))
   const chunkLengths    = tokenizedChunks.map(t => t.length)
-  const avgChunkLength  = chunkLengths.reduce((a, b) => a + b, 0) / chunks.length
+  const avgChunkLength  = chunkLengths.length > 0
+    ? chunkLengths.reduce((a, b) => a + b, 0) / chunks.length
+    : 0
 
   const documentFrequency = new Map<string, number>()
 
@@ -66,7 +116,8 @@ export function buildBM25Index(chunks: BM25Chunk[]): BM25Index {
     chunkLengths,
     avgChunkLength,
     documentFrequency,
-    N: chunks.length
+    N: chunks.length,
+    tokenizer,
   }
 }
 
@@ -125,7 +176,7 @@ export function searchBM25(
   index: BM25Index,
   topK: number = 5
 ): BM25Result[] {
-  const queryTokens = tokenize(query)
+  const queryTokens = index.tokenizer(query)
 
   const scored = index.chunks.map((chunk, i) => ({
     chunk,

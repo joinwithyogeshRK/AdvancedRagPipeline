@@ -11,6 +11,7 @@ import type { BM25Chunk } from "../rag/bm25.js"
 import type { MetadataFilter } from "../rag/pinecone.js"
 import { askGroq, isStructuralQuery } from "../rag/groq.js"
 import { evalRAG } from "../rag/evaluator.js"
+import { civilQuery } from "../rag/civilCode/civilQuery.js"
 import {
   createChat,
   saveMessage,
@@ -35,6 +36,59 @@ const pdf = async (req: Request, res: Response) => {
 
     if (!query || !query.trim()) {
       return res.status(400).json({ error: "No query provided." })
+    }
+
+    // ── CIVIL CODE BRANCH ────────────────────────────────────
+    // When the user filters by a civil-code doc ("civil:IS_456_2000"), bypass
+    // the per-user PDF flow entirely and serve from the shared code library.
+    if (typeof filterSource === "string" && filterSource.startsWith("civil:")) {
+      const docId = filterSource.slice("civil:".length)
+      console.log(`🏛  Civil code query: docId=${docId}`)
+
+      const civil = await civilQuery(query, docId)
+      console.log(`✅ Civil retrieval (${civil.route}): ${civil.chunks.length} chunks`)
+
+      // Conversation history (same shape as the generic path)
+      let conversationHistory: { role: "user" | "assistant"; content: string }[] = []
+      if (chatId) {
+        const previousMessages = await getChatMessagesForUser(chatId, userId)
+        if (!previousMessages) {
+          return res.status(403).json({ error: "This chat does not belong to your account." })
+        }
+        conversationHistory = previousMessages.flatMap((m: { query: string; answer: string }) => [
+          { role: "user"      as const, content: m.query  },
+          { role: "assistant" as const, content: m.answer },
+        ])
+      }
+
+      const answer = await askGroq(
+        query,
+        civil.chunks,
+        conversationHistory,
+        undefined,
+        { domain: "civil_code", civilDocLabel: civil.civilDocLabel },
+      )
+
+      evalRAG(query, civil.chunks, answer).catch(err =>
+        console.warn("⚠️  Eval failed silently:", err),
+      )
+
+      if (!chatId) {
+        const newChat = await createChat(userId, query)
+        chatId = newChat.id
+      }
+      await saveMessage(chatId, userId, query, answer, false)
+
+      return res.json({
+        text:   answer,
+        chatId: chatId ?? null,
+        meta: {
+          source:        filterSource,
+          civilDocId:    docId,
+          civilRoute:    civil.route,
+          chunksFetched: civil.chunks.length,
+        },
+      })
     }
 
     const metadataFilter: MetadataFilter | undefined = (() => {
