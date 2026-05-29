@@ -83,7 +83,7 @@ export const Header = ({
           </motion.button>
 
           <Link
-            to="/mix-design"
+            to="/"
             className={iconBtn}
             aria-label="Concrete mix design"
             title="Concrete mix design (IS 10262:2019)"

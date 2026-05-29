@@ -1,8 +1,10 @@
 import { useRef, useState } from "react"
 import axios from "axios"
-import { useAuth } from "@clerk/react"
+import { Show, SignInButton, useAuth, UserButton } from "@clerk/react"
 import { Link } from "react-router-dom"
-import { ArrowLeft, Calculator, ChevronDown, Download, Droplets, Loader2, TriangleAlert } from "lucide-react"
+import { Calculator, ChevronDown, Download, Droplets, Loader2, LogIn, MessageSquare, Ruler, TriangleAlert } from "lucide-react"
+import { useTheme } from "@/context/theme"
+import { getClerkAppearance } from "@/lib/clerk-appearance"
 
 const API = import.meta.env.VITE_API_URL ?? "http://localhost:3009"
 
@@ -131,8 +133,61 @@ const Metric = ({ label, value, unit }: { label: string; value: number | string;
   </div>
 )
 
+// Blueprint / graph-paper background — fine + major grid, accent glow, vignette.
+const BlueprintBackground = () => (
+  <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
+    <div className="absolute inset-0 bg-background" />
+    <div
+      className="absolute inset-0"
+      style={{
+        backgroundImage:
+          "linear-gradient(to right, color-mix(in srgb, var(--foreground) 6%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 6%, transparent) 1px, transparent 1px)",
+        backgroundSize: "26px 26px",
+      }}
+    />
+    <div
+      className="absolute inset-0"
+      style={{
+        backgroundImage:
+          "linear-gradient(to right, color-mix(in srgb, var(--foreground) 11%, transparent) 1px, transparent 1px), linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 11%, transparent) 1px, transparent 1px)",
+        backgroundSize: "130px 130px",
+      }}
+    />
+    <div
+      className="absolute inset-0"
+      style={{
+        background:
+          "radial-gradient(1100px circle at 50% -15%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 55%)",
+      }}
+    />
+    <div
+      className="absolute inset-x-0 bottom-0 h-48"
+      style={{ background: "linear-gradient(to bottom, transparent, var(--background))" }}
+    />
+  </div>
+)
+
+const Spec = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex flex-col justify-center border-l border-border px-4 py-2">
+    <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">{label}</span>
+    <span className="font-mono text-xs font-semibold text-foreground">{value}</span>
+  </div>
+)
+
+// Decorative L-shaped corner ticks, like dimension marks on a drawing.
+const CornerTicks = () => (
+  <>
+    <span className="pointer-events-none absolute left-0 top-0 h-3 w-3 border-l-2 border-t-2 border-accent/50" />
+    <span className="pointer-events-none absolute right-0 top-0 h-3 w-3 border-r-2 border-t-2 border-accent/50" />
+    <span className="pointer-events-none absolute bottom-0 left-0 h-3 w-3 border-b-2 border-l-2 border-accent/50" />
+    <span className="pointer-events-none absolute bottom-0 right-0 h-3 w-3 border-b-2 border-r-2 border-accent/50" />
+  </>
+)
+
 export default function MixDesignPage() {
   const { getToken, isSignedIn } = useAuth()
+  const { theme } = useTheme()
+  const clerkAppearance = getClerkAppearance(theme)
   const [form, setForm] = useState<FormState>(DEFAULTS)
   const [result, setResult] = useState<MixDesignResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -350,31 +405,71 @@ ${result.steps
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-        {/* Header */}
-        <div className="mb-6 flex items-center gap-3">
-          <Link
-            to="/"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card/80 text-muted-foreground transition-colors hover:border-accent/50 hover:text-accent"
-            aria-label="Back to chat"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-lg font-bold tracking-tight sm:text-xl">
-              <Calculator className="h-5 w-5 text-accent" />
-              Concrete Mix Design
-            </h1>
-            <p className="truncate text-xs text-muted-foreground">
-              IS 10262:2019 procedure · durability limits per IS 456:2000 Table 5
-            </p>
+    <div className="relative min-h-screen text-foreground">
+      <BlueprintBackground />
+      <div className="relative mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        {/* Engineering title block */}
+        <header className="mb-6 overflow-hidden rounded-2xl border border-border bg-card/60 shadow-sm backdrop-blur-md">
+          <div className="flex flex-col sm:flex-row sm:items-stretch">
+            <div className="flex flex-1 items-center gap-3 px-5 py-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-accent/40 bg-accent/10 text-accent">
+                <Calculator className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-accent/80">
+                  Structural · Concrete
+                </div>
+                <h1 className="text-lg font-bold leading-tight tracking-tight sm:text-2xl">
+                  Concrete Mix Design
+                </h1>
+              </div>
+            </div>
+
+            <div className="hidden border-t border-border sm:flex sm:border-t-0">
+              <Spec label="Code" value="IS 10262:2019" />
+              <Spec label="Basis" value="IS 456:2000 T5" />
+              <Spec label="Units" value="kg/m³" />
+            </div>
+
+            <Link
+              to="/chat"
+              className="group flex items-center justify-center gap-2 border-t border-border px-5 py-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/10 hover:text-accent sm:border-l sm:border-t-0"
+            >
+              <MessageSquare className="h-4 w-4" />
+              RAG Assistant
+              <span className="font-mono text-accent transition-transform group-hover:translate-x-0.5">→</span>
+            </Link>
+
+            <div className="flex items-center justify-center gap-2 border-t border-border px-5 py-4 sm:border-l sm:border-t-0">
+              <Show when="signed-in">
+                <UserButton
+                  appearance={{
+                    ...clerkAppearance,
+                    elements: {
+                      ...clerkAppearance.elements,
+                      userButtonAvatarBox: { width: 30, height: 30 },
+                    },
+                  }}
+                />
+              </Show>
+              <Show when="signed-out">
+                <SignInButton mode="modal" appearance={clerkAppearance}>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                  >
+                    <LogIn className="h-4 w-4" /> Sign in
+                  </button>
+                </SignInButton>
+              </Show>
+            </div>
           </div>
-        </div>
+        </header>
 
         {!isSignedIn && (
-          <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 dark:text-amber-400">
-            Sign in on the main page to run a mix design.
+          <div className="mb-5 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-600 backdrop-blur-sm dark:text-amber-400">
+            <Ruler className="h-4 w-4 shrink-0" />
+            Sign in (top-right) to run a mix design.
           </div>
         )}
 
@@ -382,7 +477,7 @@ ${result.steps
           {/* ---------- Input form ---------- */}
           <form
             onSubmit={submit}
-            className="rounded-2xl border border-border bg-card/40 p-5 shadow-sm lg:sticky lg:top-6"
+            className="rounded-2xl border border-border bg-card/60 p-5 shadow-sm backdrop-blur-md lg:sticky lg:top-6"
           >
             <SectionLabel>Concrete</SectionLabel>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -556,7 +651,7 @@ ${result.steps
                 </div>
 
                 {/* Interactive w/c control */}
-                <div className="rounded-2xl border border-accent/30 bg-accent/[0.04] p-5 shadow-sm">
+                <div className="rounded-2xl border border-accent/30 bg-accent/[0.06] p-5 shadow-sm backdrop-blur-md">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
                       <Droplets className="h-4 w-4 text-accent" /> Free Water-Cement Ratio
@@ -588,7 +683,8 @@ ${result.steps
                 </div>
 
                 {/* Final proportions */}
-                <div className="rounded-2xl border border-border bg-card/40 p-5 shadow-sm">
+                <div className="relative rounded-2xl border border-accent/25 bg-card/60 p-5 shadow-sm backdrop-blur-md">
+                  <CornerTicks />
                   <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-accent/80">
                     Final mix proportions
                     <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground">per m³</span>
@@ -611,7 +707,7 @@ ${result.steps
 
                 {/* Per bag + durability side by side */}
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border bg-card/40 p-5 shadow-sm">
+                  <div className="rounded-2xl border border-border bg-card/60 p-5 shadow-sm backdrop-blur-md">
                     <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
                       Per 50 kg cement bag
                     </h2>
@@ -625,7 +721,7 @@ ${result.steps
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-border bg-card/40 p-5 shadow-sm">
+                  <div className="rounded-2xl border border-border bg-card/60 p-5 shadow-sm backdrop-blur-md">
                     <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
                       Durability limits
                     </h2>
@@ -651,7 +747,7 @@ ${result.steps
                 )}
 
                 {/* Step-by-step */}
-                <div className="rounded-2xl border border-border bg-card/40 p-5 shadow-sm">
+                <div className="rounded-2xl border border-border bg-card/60 p-5 shadow-sm backdrop-blur-md">
                   <h2 className="mb-4 text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
                     Step-by-step derivation
                   </h2>

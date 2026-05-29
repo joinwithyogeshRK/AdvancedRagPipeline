@@ -11,8 +11,8 @@ function App() {
       <Routes>
         <Route path="/auth/github/callback" element={<GithubOAuthCallbackBridge />} />
         <Route path="/sso-callback" element={<SsoCallbackPage />} />
-        <Route path="/mix-design" element={<MixDesignPage />} />
-        <Route path="/" element={<ChatPage />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/" element={<MixDesignPage />} />
       </Routes>
     </BrowserRouter>
   );
