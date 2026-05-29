@@ -42,8 +42,19 @@ export type MixDesignInputs = {
   aggregateType: "Crushed" | "Natural (Uncrushed)";
   fineAggregateZone: FineAggregateZone;
   useChemicalAdmixture: boolean;
+  admixtureName?: string;            // free-text label for the chosen admixture (display only)
   admixtureDosagePercent?: number;   // % by mass of cement (typ 0.8-1.5 for superplasticizer)
   waterReductionPercent?: number;    // % water reduction by admixture (typ 20-25 for SP)
+
+  // Actual standard deviation from site test data (N/mm²). If omitted, the
+  // assumed value from IS 10262:2019 Table 2 is used. Supplying a lower actual
+  // S can make the fck + X criterion govern the target mean strength.
+  standardDeviation?: number;
+
+  // User-specified free water-cement ratio. If provided, it drives the whole
+  // calculation instead of the Fig 1 indicative value (durability becomes a
+  // warning rather than a silent cap).
+  waterCementRatio?: number;
 
   // Specific gravities (defaults given if omitted)
   cementSpecificGravity?: number;        // default 3.15
@@ -73,6 +84,7 @@ export type MixProportions = {
   fineAggregate: number; // kg/m³
   coarseAggregate: number; // kg/m³
   admixture?: number;    // kg/m³
+  waterCementRatio: number; // the free w/c actually used in this calculation
   ratio: string;         // "1 : 1.65 : 2.92 : 0.45"
 };
 
@@ -102,12 +114,23 @@ export type MixDesignResult = {
 // IS 10262:2019 — Hard-coded reference tables
 // ============================================================
 
-// IS 10262:2019 Table 1 — Assumed standard deviation (N/mm²) when site data
+// IS 10262:2019 Table 2 — Assumed standard deviation (N/mm²) when site data
 // is not available. Used to compute target mean strength.
 const STANDARD_DEVIATION = (grade: number): number => {
   if (grade <= 15) return 3.5;
   if (grade <= 25) return 4.0;
-  return 5.0;
+  if (grade <= 60) return 5.0;
+  return 6.0; // M65 and above
+};
+
+// IS 10262:2019 Table 1 — Value of X for the second target-strength criterion
+// (f'ck = fck + X). Target mean strength is the higher of (fck + 1.65 S) and
+// (fck + X) per Clause 4.2.
+const X_VALUE = (grade: number): number => {
+  if (grade <= 15) return 5.0;
+  if (grade <= 25) return 5.5;
+  if (grade <= 60) return 6.5;
+  return 8.0; // M65 and above
 };
 
 // IS 10262:2019 Table 2 — Maximum water content per cubic metre of concrete
@@ -217,42 +240,87 @@ export const calculateMixDesign = (rawInputs: MixDesignInputs): MixDesignResult 
   }
 
   // ---- Step 1: Target mean strength ----
-  const stddev = STANDARD_DEVIATION(inputs.grade);
-  // IS 10262:2019 Clause 4 — target mean strength = fck + 1.65*S
-  const targetMeanStrength = inputs.grade + 1.65 * stddev;
+  // IS 10262:2019 Clause 4.2 — target mean strength is the HIGHER of:
+  //   f'ck = fck + 1.65 S   (S from Table 2)
+  //   f'ck = fck + X        (X from Table 1)
+  const assumedS = STANDARD_DEVIATION(inputs.grade);
+  const stddev =
+    inputs.standardDeviation !== undefined && inputs.standardDeviation > 0
+      ? inputs.standardDeviation
+      : assumedS;
+  const sSource =
+    stddev === assumedS ? "assumed (Table 2)" : "actual site data";
+  const xValue = X_VALUE(inputs.grade);
+  const fckPlusSigma = inputs.grade + 1.65 * stddev;
+  const fckPlusX = inputs.grade + xValue;
+  const targetMeanStrength = Math.max(fckPlusSigma, fckPlusX);
+  const governing = fckPlusSigma >= fckPlusX ? "1.65 S criterion" : "X criterion";
   steps.push({
     step: 1,
     title: "Target Mean Strength",
-    reference: "IS 10262:2019, Clause 4 + Table 1",
-    detail: `f'ck = fck + 1.65×S = ${inputs.grade} + 1.65×${stddev} = ${targetMeanStrength.toFixed(2)} N/mm²`,
+    reference: "IS 10262:2019, Clause 4.2 + Tables 1 & 2",
+    detail:
+      `S = ${stddev} N/mm² (${sSource}). Higher of: ` +
+      `fck + 1.65×S = ${inputs.grade} + 1.65×${stddev} = ${fckPlusSigma.toFixed(2)} N/mm², ` +
+      `and fck + X = ${inputs.grade} + ${xValue} = ${fckPlusX.toFixed(2)} N/mm². ` +
+      `Governing: ${governing} → f'ck = ${targetMeanStrength.toFixed(2)} N/mm².`,
     value: round2(targetMeanStrength),
     unit: "N/mm²",
   });
 
   // ---- Step 2: Selection of w/c ratio ----
-  let wcRatio = wcRatioFromTargetStrength(targetMeanStrength, inputs.cementType);
-  steps.push({
-    step: 2,
-    title: "Free Water-Cement Ratio (from Fig 1)",
-    reference: "IS 10262:2019, Fig 1",
-    detail:
-      `For target strength ${targetMeanStrength.toFixed(2)} N/mm² with ${inputs.cementType}, ` +
-      `the indicative free w/c ratio is ${wcRatio.toFixed(2)}.`,
-    value: wcRatio,
-  });
+  const userWcRatio =
+    inputs.waterCementRatio !== undefined && inputs.waterCementRatio > 0
+      ? inputs.waterCementRatio
+      : undefined;
+  let wcRatio: number;
 
-  if (wcRatio > durability.maxWaterCementRatio) {
+  if (userWcRatio !== undefined) {
+    // User-driven w/c: drive the whole calculation from this value so the
+    // result can be explored interactively. Durability is enforced as a
+    // warning, not a silent cap.
+    wcRatio = userWcRatio;
     steps.push({
       step: 2,
-      title: "W/C ratio adjusted to meet durability",
-      reference: "IS 456:2000, Table 5",
+      title: "Free Water-Cement Ratio (user specified)",
+      reference: "IS 10262:2019, Clause 5.1",
       detail:
-        `Calculated w/c (${wcRatio.toFixed(2)}) exceeds the maximum permitted ` +
-        `(${durability.maxWaterCementRatio.toFixed(2)}) for ${inputs.exposureCondition} exposure. ` +
-        `Using ${durability.maxWaterCementRatio.toFixed(2)}.`,
-      value: durability.maxWaterCementRatio,
+        `Using a user-specified free w/c ratio of ${wcRatio.toFixed(2)} ` +
+        `(Fig 1 indicative value for f'ck ${targetMeanStrength.toFixed(2)} N/mm² with ` +
+        `${inputs.cementType} would be ${wcRatioFromTargetStrength(targetMeanStrength, inputs.cementType).toFixed(2)}).`,
+      value: wcRatio,
     });
-    wcRatio = durability.maxWaterCementRatio;
+    if (wcRatio > durability.maxWaterCementRatio) {
+      warnings.push(
+        `Specified w/c ${wcRatio.toFixed(2)} exceeds the maximum ${durability.maxWaterCementRatio.toFixed(2)} ` +
+          `permitted for ${inputs.exposureCondition} exposure (${inputs.concreteType.toLowerCase()}) per IS 456:2000 Table 5.`,
+      );
+    }
+  } else {
+    wcRatio = wcRatioFromTargetStrength(targetMeanStrength, inputs.cementType);
+    steps.push({
+      step: 2,
+      title: "Free Water-Cement Ratio (from Fig 1)",
+      reference: "IS 10262:2019, Fig 1",
+      detail:
+        `For target strength ${targetMeanStrength.toFixed(2)} N/mm² with ${inputs.cementType}, ` +
+        `the indicative free w/c ratio is ${wcRatio.toFixed(2)}.`,
+      value: wcRatio,
+    });
+
+    if (wcRatio > durability.maxWaterCementRatio) {
+      steps.push({
+        step: 2,
+        title: "W/C ratio adjusted to meet durability",
+        reference: "IS 456:2000, Table 5",
+        detail:
+          `Calculated w/c (${wcRatio.toFixed(2)}) exceeds the maximum permitted ` +
+          `(${durability.maxWaterCementRatio.toFixed(2)}) for ${inputs.exposureCondition} exposure. ` +
+          `Using ${durability.maxWaterCementRatio.toFixed(2)}.`,
+        value: durability.maxWaterCementRatio,
+      });
+      wcRatio = durability.maxWaterCementRatio;
+    }
   }
 
   // ---- Step 3: Water content ----
@@ -303,12 +371,15 @@ export const calculateMixDesign = (rawInputs: MixDesignInputs): MixDesignResult 
     const reduction = inputs.waterReductionPercent ?? 20;
     const before = waterContent;
     waterContent = waterContent * (1 - reduction / 100);
+    const admixLabel = inputs.admixtureName?.trim()
+      ? inputs.admixtureName.trim()
+      : "Chemical admixture";
     steps.push({
       step: 3,
       title: "Adjust for chemical admixture",
       reference: "IS 10262:2019, Clause 5",
       detail:
-        `Chemical admixture (water reduction ${reduction}%): ` +
+        `${admixLabel} (water reduction ${reduction}%): ` +
         `${before.toFixed(1)} × ${(1 - reduction / 100).toFixed(3)} = ${waterContent.toFixed(1)} kg/m³.`,
       value: round2(waterContent),
       unit: "kg/m³",
@@ -445,6 +516,7 @@ export const calculateMixDesign = (rawInputs: MixDesignInputs): MixDesignResult 
     water: round2(waterContentCorrected),
     fineAggregate: round2(faMassCorrected),
     coarseAggregate: round2(caMassCorrected),
+    waterCementRatio: round2(wcRatio),
     ratio: `1 : ${(faMassCorrected / cementContent).toFixed(2)} : ${(caMassCorrected / cementContent).toFixed(2)} : ${(waterContent / cementContent).toFixed(2)}`,
     ...(admixtureMass > 0 ? { admixture: round2(admixtureMass) } : {}),
   };

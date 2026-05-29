@@ -161,6 +161,8 @@ router.post("/mix-design", async (req: Request, res: Response) => {
   // Only forward optional numeric fields that were actually provided, so the
   // service applies its own IS-code defaults for the rest.
   const optionalNumeric = [
+    "standardDeviation",
+    "waterCementRatio",
     "admixtureDosagePercent",
     "waterReductionPercent",
     "cementSpecificGravity",
@@ -189,6 +191,9 @@ router.post("/mix-design", async (req: Request, res: Response) => {
     if (b[key] !== undefined && b[key] !== null && b[key] !== "" && Number.isFinite(v)) {
       (inputs as Record<string, unknown>)[key] = v;
     }
+  }
+  if (typeof b.admixtureName === "string" && b.admixtureName.trim() !== "") {
+    inputs.admixtureName = b.admixtureName.trim().slice(0, 80);
   }
 
   try {
