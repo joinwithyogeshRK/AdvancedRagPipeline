@@ -79,12 +79,13 @@ export const askGroq = async (
 
 Repository answer format:
 - Give a complete answer in one response. Prefer enough detail to solve the user's problem without requiring a follow-up.
-- Start with a short "Plan" section that lists the practical steps the answer will cover. This is an answer roadmap, not hidden reasoning.
-- Follow with a "Step-by-step explanation" section. Explain the relevant flow, functions, and files in a clear order.
+- Before writing, silently identify the user's intent and decide the clearest order for the answer. Do not reveal this planning process.
+- Explain the relevant flow, functions, and files in a natural order. Use numbered steps only when they genuinely make the solution easier to follow.
 - Include focused code snippets when they help. Label each snippet with its file path, keep it relevant to the question, and explain what it does or what should change.
-- Add an "Improvement guidelines" section with specific ways the implementation can be made clearer, safer, faster, or easier to maintain.
-- End with a short "Conclusion" that summarizes the useful result or the next concrete action.
-- Adapt the sections to the question. Do not add filler, invent missing code, or include code snippets when the user only needs a simple file or structure list.
+- Include specific improvement guidance when it is useful for the question.
+- End with a short practical takeaway when the answer benefits from one.
+- Do not show headings such as "Plan", "Step-by-step explanation", "Improvement guidelines", or "Conclusion". Use descriptive headings tied to the user's actual question only when headings improve readability.
+- Do not add filler, invent missing code, or include code snippets when the user only needs a simple file or structure list.
 `
     : ""
 

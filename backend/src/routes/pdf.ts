@@ -99,15 +99,20 @@ const pdf = async (req: Request, res: Response) => {
       }
     }
 
+    const isRepoQuery = filterSource?.startsWith("github:") ?? false
+    const repoName    = isRepoQuery ? filterSource!.replace("github:", "") : undefined
+
     // Step 5 — HyDE + Embed
-    const hypothetical = await generateHypotheticalDocument(query)
-    const queryVector  = await embedQuery(hypothetical)
+    // Preserve exact code identifiers while adding related implementation terms
+    // to improve vector retrieval for repository questions.
+    const hypothetical = await generateHypotheticalDocument(query, repoName ? { repository: repoName } : {})
+    const retrievalText = isRepoQuery ? `${query}\n\n${hypothetical}` : hypothetical
+    const queryVector    = await embedQuery(retrievalText)
     console.log("✅ Step 5 — HyDE generated + embedded")
 
     // Step 6 — Hybrid Search → Rerank
     // Repo answers often need context from multiple files, so retrieve a wider
     // candidate set and keep a few more chunks than we do for PDF questions.
-    const isRepoQuery      = filterSource?.startsWith("github:") ?? false
     const retrievalTopK    = isRepoQuery ? 12 : 5
     const rerankTopN       = isRepoQuery ? 8 : 5
     const hybridChunks     = await hybridSearch(queryVector, query, bm25Chunks, userId, retrievalTopK, metadataFilter)
@@ -123,17 +128,15 @@ const pdf = async (req: Request, res: Response) => {
     const isStructural   = isStructuralQuery(query)
 
     if (isRepoQuery) {
-      const repoName = filterSource!.replace("github:", "")
-
       if (isStructural) {
         // Structural query — fetch full tree
-        console.log(`🌳 Structural query detected — fetching tree for ${repoName}`)
+        console.log(`🌳 Structural query detected — fetching tree for ${repoName!}`)
 
         const { data, error } = await supabase
           .from("repo_trees")
           .select("tree, repo_name")
           .eq("user_id", userId)
-          .eq("repo_name", repoName)
+          .eq("repo_name", repoName!)
           .single()
 
         if (!error && data) {
@@ -149,7 +152,7 @@ const pdf = async (req: Request, res: Response) => {
         // Non-structural repo query — still inject repo name so Groq
         // knows which repo is being discussed
         repoContext = {
-          repoName,
+          repoName: repoName!,
           tree: [],   // empty tree — Groq won't show file list
         }
       }
