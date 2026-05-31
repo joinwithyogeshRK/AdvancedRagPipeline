@@ -7,7 +7,7 @@ interface BackgroundProps {
 
 export const Background = ({ showShader = true }: BackgroundProps) => {
   const { theme } = useTheme()
-
+  console.log("civil major project code")
   return (
     <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-background" aria-hidden>
       {theme === "dark" && showShader ? (

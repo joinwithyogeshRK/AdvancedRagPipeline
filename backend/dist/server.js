@@ -31,6 +31,7 @@ const PORT = process.env.PORT || 3009;
 const data = multer().single("File");
 const router1 = Router();
 app.use(router1);
+console.log("civil major project");
 router1.post("/query", requireClerkSession, data, test);
 router1.use("/history", historyRouter);
 router1.use("/auth/github", githubAuthRouter);
