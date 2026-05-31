@@ -510,7 +510,7 @@ const ChatPage = () => {
 
   return (
     <div className="relative flex h-[100dvh] min-h-[560px] w-screen overflow-hidden bg-background text-foreground">
-      <Background showShader={!chatStarted} />
+      <Background />
 
       {!chatStarted && (
         <Sidebar

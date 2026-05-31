@@ -1,20 +1,6 @@
-import AnoAI from "@/components/ui/animated-shader-background"
-import { useTheme } from "@/context/theme"
-
-interface BackgroundProps {
-  showShader?: boolean
-}
-
-export const Background = ({ showShader = true }: BackgroundProps) => {
-  const { theme } = useTheme()
-
+export const Background = () => {
   return (
     <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-background" aria-hidden>
-      {theme === "dark" && showShader ? (
-        <div className="absolute inset-0">
-          <AnoAI />
-        </div>
-      ) : null}
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,var(--bg-glow-a),transparent_42%),radial-gradient(ellipse_at_bottom_right,var(--bg-glow-b),transparent_46%),linear-gradient(115deg,transparent_0%,var(--bg-glow-c)_42%,transparent_72%)]" />
       <div className="absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-white/55 to-transparent dark:from-white/[0.03]" />
       <div className="absolute inset-x-[-12%] top-[16%] h-40 rotate-[-7deg] bg-gradient-to-r from-transparent via-white/35 to-transparent blur-2xl dark:via-white/[0.025]" />
