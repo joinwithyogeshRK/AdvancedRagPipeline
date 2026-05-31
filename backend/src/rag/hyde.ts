@@ -4,6 +4,80 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY!
 })
 
+const BROAD_REPOSITORY_HINTS = [
+  'architecture', 'codebase', 'entire project', 'full flow', 'overall flow',
+  'end to end', 'end-to-end', 'how does this code work', 'how does this project work',
+  'explain the project', 'explain this project', 'project overview', 'system design',
+  'walk me through', 'main components', 'complete flow',
+]
+
+const DEFAULT_REPOSITORY_SEARCH_FACETS = [
+  'server entry point route registration authentication middleware request flow',
+  'document ingestion repository indexing chunking embedding vector storage',
+  'query expansion embedding pinecone search hybrid retrieval reranking',
+  'answer generation repository context conversation history persistence response',
+]
+
+export function isBroadRepositoryQuery(query: string): boolean {
+  const lower = query.toLowerCase()
+  return BROAD_REPOSITORY_HINTS.some(hint => lower.includes(hint))
+}
+
+function parseSearchQueries(content: string): string[] {
+  try {
+    const json = content.replace(/```(?:json)?|```/g, '').trim()
+    const parsed: unknown = JSON.parse(json)
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .filter((query): query is string => typeof query === 'string')
+      .map(query => query.trim())
+      .filter(Boolean)
+      .slice(0, 4)
+  } catch {
+    return []
+  }
+}
+
+export async function generateRepositorySearchQueries(
+  query: string,
+  repository: string,
+): Promise<string[]> {
+  console.log('\n🧭 HyDE — Generating repository search facets...')
+
+  const response = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      {
+        role: 'system',
+        content:
+          `You create internal search queries for a source-code repository.
+           Expand the user's broad repository question into exactly 4 focused search queries
+           that retrieve complementary implementation evidence. Cover different parts of the
+           requested flow, such as entry points, routes, indexing, retrieval, answer generation,
+           and persistence when relevant. Preserve exact identifiers from the question.
+           Do not answer the question. Do not invent repository-specific identifiers.
+           Return only a JSON array of 4 strings.`
+      },
+      {
+        role: 'user',
+        content: `Repository: ${repository}\nQuestion: ${query}`
+      }
+    ],
+    temperature: 0.2,
+    max_tokens:  320,
+  })
+
+  const generated = parseSearchQueries(response.choices[0]?.message?.content?.trim() ?? '')
+  const facets = generated.length === 4 ? generated : DEFAULT_REPOSITORY_SEARCH_FACETS
+  const queries = [query, ...facets]
+
+  console.log(`  🔎 Search facets: ${queries.length}`)
+  queries.forEach((searchQuery, i) => console.log(`    ${i + 1}. ${searchQuery.slice(0, 120)}`))
+
+  return queries
+}
+
 // ─────────────────────────────────────────────────────────────
 // GENERATE HYPOTHETICAL DOCUMENT
 // ─────────────────────────────────────────────────────────────

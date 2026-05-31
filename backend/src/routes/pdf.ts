@@ -3,10 +3,14 @@ import { createClient } from "@supabase/supabase-js"
 import { extractTextFromPDF } from "../services/ocrService.js"
 import { chunkText } from "../rag/chunker.js"
 import { embedChunks, embedQuery } from "../rag/embedder.js"
-import { storeInPinecone } from "../rag/pinecone.js"
+import { searchPinecone, storeInPinecone } from "../rag/pinecone.js"
 import { hybridSearch } from "../rag/hybridSearch.js"
 import { rerankChunks } from "../rag/reranker.js"
-import { generateHypotheticalDocument } from "../rag/hyde.js"
+import {
+  generateHypotheticalDocument,
+  generateRepositorySearchQueries,
+  isBroadRepositoryQuery,
+} from "../rag/hyde.js"
 import type { BM25Chunk } from "../rag/bm25.js"
 import type { MetadataFilter } from "../rag/pinecone.js"
 import { askGroq, isStructuralQuery } from "../rag/groq.js"
@@ -21,6 +25,29 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_KEY!
 )
+
+function selectDiverseRepositoryChunks(chunks: string[], limit: number): string[] {
+  const selected: string[] = []
+  const overflow: string[] = []
+  const fileCounts = new Map<string, number>()
+
+  for (const chunk of chunks) {
+    const filePath = chunk.match(/^\/\/ File: (.+)$/m)?.[1] ?? "(unknown)"
+    const count    = fileCounts.get(filePath) ?? 0
+
+    if (count < 3) {
+      selected.push(chunk)
+      fileCounts.set(filePath, count + 1)
+    } else {
+      overflow.push(chunk)
+    }
+  }
+
+  // Keep enough evidence even when a small repository has only a few files.
+  const minimum = Math.min(12, chunks.length, limit)
+  return [...selected, ...overflow.slice(0, Math.max(0, minimum - selected.length))]
+    .slice(0, limit)
+}
 
 const pdf = async (req: Request, res: Response) => {
   try {
@@ -101,36 +128,55 @@ const pdf = async (req: Request, res: Response) => {
 
     const isRepoQuery = filterSource?.startsWith("github:") ?? false
     const repoName    = isRepoQuery ? filterSource!.replace("github:", "") : undefined
+    const isBroadRepoQuery = isRepoQuery && isBroadRepositoryQuery(query)
 
-    // Step 5 — HyDE + Embed
-    // Preserve exact code identifiers while adding related implementation terms
-    // to improve vector retrieval for repository questions.
-    const hypothetical = await generateHypotheticalDocument(query, repoName ? { repository: repoName } : {})
-    const retrievalText = isRepoQuery ? `${query}\n\n${hypothetical}` : hypothetical
-    const queryVector    = await embedQuery(retrievalText)
-    console.log("✅ Step 5 — HyDE generated + embedded")
+    let reranked
 
-    // Step 6 — Hybrid Search → Rerank
-    // Repo answers often need context from multiple files, so retrieve a wider
-    // candidate set and keep a few more chunks than we do for PDF questions.
-    const retrievalTopK    = isRepoQuery ? 12 : 5
-    const rerankTopN       = isRepoQuery ? 8 : 5
-    const hybridChunks     = await hybridSearch(queryVector, query, bm25Chunks, userId, retrievalTopK, metadataFilter)
-    const reranked         = await rerankChunks(query, hybridChunks.map(c => c.text), rerankTopN)
-    const relevantChunks = reranked.map(c => c.text)
+    if (isBroadRepoQuery) {
+      // Broad repo questions need balanced evidence from several parts of the
+      // codebase, not a larger pile of results from one similarity search.
+      const searchQueries = await generateRepositorySearchQueries(query, repoName!)
+      const queryVectors  = await Promise.all(searchQueries.map(embedQuery))
+      const resultGroups  = await Promise.all(
+        queryVectors.map(vector => searchPinecone(vector, userId, 8, metadataFilter))
+      )
+      const uniqueChunks = Array.from(
+        new Map(resultGroups.flat().map(chunk => [chunk.id, chunk])).values()
+      )
+
+      console.log(`✅ Step 5 — Multi-query repo retrieval found ${uniqueChunks.length} unique candidates`)
+      reranked = await rerankChunks(query, uniqueChunks.map(chunk => chunk.text), 24)
+    } else {
+      // Preserve exact code identifiers while adding related implementation terms
+      // to improve vector retrieval for focused repository and PDF questions.
+      const hypothetical = await generateHypotheticalDocument(query, repoName ? { repository: repoName } : {})
+      const retrievalText = isRepoQuery ? `${query}\n\n${hypothetical}` : hypothetical
+      const queryVector    = await embedQuery(retrievalText)
+      const retrievalTopK  = isRepoQuery ? 12 : 5
+      const rerankTopN     = isRepoQuery ? 8 : 5
+      const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId, retrievalTopK, metadataFilter)
+
+      console.log("✅ Step 5 — HyDE generated + embedded")
+      reranked = await rerankChunks(query, hybridChunks.map(chunk => chunk.text), rerankTopN)
+    }
+
+    const rerankedChunks = reranked.map(c => c.text)
+    const relevantChunks = isBroadRepoQuery
+      ? selectDiverseRepositoryChunks(rerankedChunks, 16)
+      : rerankedChunks
     console.log(`✅ Step 6 — ${relevantChunks.length} chunks reranked and ready`)
 
     // ── Step 6b — Repo tree injection ──────────────────────
     // If user is querying a specific repo AND query is structural
     // fetch the full tree from Supabase and pass to Groq
-    let repoContext: { repoName: string; tree: any[] } | undefined
+    let repoContext: { repoName: string; tree: any[]; broadQuery?: boolean } | undefined
 
     const isStructural   = isStructuralQuery(query)
 
     if (isRepoQuery) {
-      if (isStructural) {
+      if (isStructural || isBroadRepoQuery) {
         // Structural query — fetch full tree
-        console.log(`🌳 Structural query detected — fetching tree for ${repoName!}`)
+        console.log(`🌳 Repository overview requested — fetching tree for ${repoName!}`)
 
         const { data, error } = await supabase
           .from("repo_trees")
@@ -143,10 +189,16 @@ const pdf = async (req: Request, res: Response) => {
           repoContext = {
             repoName: data.repo_name,
             tree:     data.tree ?? [],
+            broadQuery: isBroadRepoQuery,
           }
           console.log(`✅ Tree loaded: ${repoContext.tree.length} files`)
         } else {
           console.warn("⚠️  Could not fetch repo tree:", error?.message)
+          repoContext = {
+            repoName: repoName!,
+            tree: [],
+            broadQuery: isBroadRepoQuery,
+          }
         }
       } else {
         // Non-structural repo query — still inject repo name so Groq
@@ -154,6 +206,7 @@ const pdf = async (req: Request, res: Response) => {
         repoContext = {
           repoName: repoName!,
           tree: [],   // empty tree — Groq won't show file list
+          broadQuery: isBroadRepoQuery,
         }
       }
     }
@@ -203,6 +256,7 @@ const pdf = async (req: Request, res: Response) => {
         filter:          metadataFilter ?? null,
         repoTreeInjected: !!repoContext,
         structuralQuery:  isStructural ?? false,
+        broadRepoQuery:    isBroadRepoQuery,
       },
     })
 

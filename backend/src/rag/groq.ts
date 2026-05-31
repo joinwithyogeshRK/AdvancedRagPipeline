@@ -70,6 +70,7 @@ export const askGroq = async (
   repoContext?: {
     repoName: string
     tree:     { path: string; type: string; size?: number }[]
+    broadQuery?: boolean
   },
 ): Promise<string> => {
   const hasChunks   = relevantChunks.length > 0
@@ -102,6 +103,7 @@ export const askGroq = async (
     ? `${baseVoice}
 
 You are explaining the GitHub repository "${repoContext.repoName}".
+${repoContext.broadQuery ? "The user is asking a broad repository question. Cover the verified end-to-end flow across the available files before discussing optional improvements." : ""}
 
 Repository answer rules:
 - Treat only the repository structure and retrieved repository code below as verified evidence.
@@ -141,7 +143,7 @@ Answer using conversation history and your general knowledge when needed.`
 
   const response = await groq.chat.completions.create({
     model:       "llama-3.3-70b-versatile",
-    max_tokens:  repoContext ? 2048 : 1024,
+    max_tokens:  repoContext?.broadQuery ? 3072 : repoContext ? 2048 : 1024,
     temperature: repoContext ? 0.2 : 0.35,
     messages,
   })
