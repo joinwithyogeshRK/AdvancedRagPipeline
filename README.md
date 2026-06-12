@@ -213,7 +213,7 @@ with strict grounding instructions to reduce hallucination.
 
 ---
 
-## 7. Evaluation
+## 7. Evaluation..
 
 Generated responses are scored on:
 
