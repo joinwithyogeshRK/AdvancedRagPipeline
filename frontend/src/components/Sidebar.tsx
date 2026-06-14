@@ -1,329 +1,109 @@
-import { motion, AnimatePresence } from "framer-motion"
-import { Check, MessageSquare, MoreHorizontal, PanelLeftClose, Pencil, Plus, Search, Trash2, X } from "lucide-react"
-import { useMemo, useState } from "react"
-import { cn } from "@/lib/utils"
+import { motion, AnimatePresence } from "framer-motion";
 
-interface Chat {
-  id: string
-  title: string
-  created_at: string
-}
+interface Chat { id: string; title: string; created_at: string }
 
 interface Props {
-  open: boolean
-  mode?: "overlay" | "docked"
-  chats: Chat[]
-  activeChatId: string | null
-  loading: boolean
-  onClose: () => void
-  onNewChat: () => void
-  onSelectChat: (id: string) => void
-  onDeleteChat: (id: string, e: React.MouseEvent) => void
-  onRenameChat: (id: string, title: string) => Promise<boolean>
+  open: boolean;
+  chats: Chat[];
+  activeChatId: string | null;
+  loading: boolean;
+  onClose: () => void;
+  onNewChat: () => void;
+  onSelectChat: (id: string) => void;
+  onDeleteChat: (id: string, e: React.MouseEvent) => void;
 }
 
 const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-export const Sidebar = ({
-  open,
-  mode = "overlay",
-  chats,
-  activeChatId,
-  loading,
-  onClose,
-  onNewChat,
-  onSelectChat,
-  onDeleteChat,
-  onRenameChat,
-}: Props) => {
-  const [editingChatId, setEditingChatId] = useState<string | null>(null)
-  const [draftTitle, setDraftTitle] = useState("")
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const [renamingChatId, setRenamingChatId] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
+export const Sidebar = ({ open, chats, activeChatId, loading, onClose, onNewChat, onSelectChat, onDeleteChat }: Props) => (
+  <AnimatePresence>
+    {open && (
+      <>
+        <motion.div style={s.overlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+        <motion.div style={s.sidebar} initial={{ x: -320 }} animate={{ x: 0 }} exit={{ x: -320 }} transition={{ type: "spring", damping: 28, stiffness: 260 }}>
 
-  const filteredChats = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase()
-    if (!query) return chats
-
-    return chats.filter((chat) => {
-      const date = formatDate(chat.created_at).toLowerCase()
-      return (
-        chat.title.toLowerCase().includes(query) ||
-        date.includes(query)
-      )
-    })
-  }, [chats, searchQuery])
-
-  const beginRename = (chat: Chat, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setEditingChatId(chat.id)
-    setDraftTitle(chat.title)
-    setOpenMenuId(null)
-  }
-
-  const saveRename = async (chatId: string, e?: React.MouseEvent) => {
-    e?.stopPropagation()
-    const title = draftTitle.trim()
-    if (!title || renamingChatId) return
-
-    setRenamingChatId(chatId)
-    const renamed = await onRenameChat(chatId, title)
-    setRenamingChatId(null)
-
-    if (renamed) {
-      setEditingChatId(null)
-      setDraftTitle("")
-    }
-  }
-
-  const cancelRename = (e?: React.MouseEvent) => {
-    e?.stopPropagation()
-    setEditingChatId(null)
-    setDraftTitle("")
-  }
-
-  const aside = (
-    <motion.aside
-      className={cn(
-        "glass-panel z-20 flex w-[min(320px,88vw)] shrink-0 flex-col border-r border-border",
-        mode === "overlay" ? "fixed bottom-0 left-0 top-0" : "relative h-full w-[300px] shadow-none"
-      )}
-      initial={mode === "overlay" ? { x: -320 } : { opacity: 0, width: 0 }}
-      animate={mode === "overlay" ? { x: 0 } : { opacity: 1, width: 300 }}
-      exit={mode === "overlay" ? { x: -320 } : { opacity: 0, width: 0 }}
-      transition={{ type: "spring", damping: 28, stiffness: 260 }}
-    >
-      <div className="flex items-center justify-between border-b border-border/80 px-4 py-5">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-extrabold tracking-wide text-foreground">
-            Oracle
+          <div style={s.header}>
+            <span style={s.title}>CHAT HISTORY</span>
+            <button onClick={onClose} style={s.closeBtn}>✕</button>
           </div>
-          <div className="mt-0.5 font-mono text-[9px] font-semibold tracking-[0.2em] text-accent/75">
-            CHATS
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg border border-border bg-card/70 p-2 text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
-          aria-label={mode === "overlay" ? "Close sidebar" : "Hide chat history"}
-          title={mode === "overlay" ? "Close sidebar" : "Hide chat history"}
-        >
-          {mode === "overlay" ? (
-            <X className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </button>
-      </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              onNewChat()
-              onClose()
-            }}
-            className="mx-3 mt-3 flex items-center gap-2 rounded-xl border border-dashed border-accent/25 bg-accent/5 px-3.5 py-2.5 font-mono text-[10px] font-extrabold tracking-wider text-accent/80 transition-colors hover:border-accent/45 hover:bg-accent/10 hover:text-accent"
-          >
-            <Plus className="h-3 w-3" />
+          <button onClick={() => { onNewChat(); onClose(); }} style={s.newBtn}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
             NEW CHAT
           </button>
 
-          <div className="mx-3 mt-3 flex h-10 items-center gap-2 rounded-xl border border-border bg-card/65 px-3 text-muted-foreground shadow-sm transition-colors focus-within:border-accent/35 focus-within:bg-background">
-            <Search className="h-3.5 w-3.5 shrink-0" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter chats..."
-              className="min-w-0 flex-1 bg-transparent text-[12px] font-semibold text-foreground outline-none placeholder:text-muted-foreground/65"
-              aria-label="Filter chats"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Clear chat filter"
-                title="Clear filter"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+          <div style={s.divider} />
 
-          <div className="mx-3 my-3 h-px bg-border" />
-
-          <div className="scrollbar-thin flex-1 overflow-y-auto px-2 pb-4">
+          <div style={s.list}>
             {loading ? (
-              <div className="flex flex-col gap-2 p-2">
+              <div style={s.loadingWrap}>
                 {[0, 1, 2].map((i) => (
-                  <motion.div
-                    key={i}
-                    className="h-14 rounded-xl bg-muted"
-                    animate={{ opacity: [0.3, 0.7, 0.3] }}
-                    transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-                  />
+                  <motion.div key={i} style={s.skeleton} animate={{ opacity: [0.3, 0.7, 0.3] }} transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }} />
                 ))}
               </div>
             ) : chats.length === 0 ? (
-              <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                No previous chats
-              </p>
-            ) : filteredChats.length === 0 ? (
-              <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                No chats match your filter
-              </p>
+              <div style={s.empty}>No previous chats</div>
             ) : (
-              filteredChats.map((chat) => (
+              chats.map((chat) => (
                 <motion.div
                   key={chat.id}
-                  role="button"
-                  tabIndex={0}
+                  style={{ ...s.item, ...(activeChatId === chat.id ? s.itemActive : {}) }}
                   onClick={() => onSelectChat(chat.id)}
-                  onKeyDown={(e) => {
-                    if (editingChatId === chat.id) return
-                    if (e.key === "Enter") onSelectChat(chat.id)
-                  }}
-                  className={cn(
-                    "relative mb-1 cursor-pointer rounded-xl border px-3 py-2.5 transition-colors hover:border-border hover:bg-white/55 dark:hover:bg-muted",
-                    activeChatId === chat.id
-                      ? "border-accent/25 bg-accent/10 shadow-sm"
-                      : "border-transparent"
-                  )}
+                  whileHover={{ background: "#16161f" }}
                 >
-                  <div className="flex items-center gap-2.5">
-                    <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                    {editingChatId === chat.id ? (
-                      <div className="min-w-0 flex-1">
-                        <input
-                          value={draftTitle}
-                          onChange={(e) => setDraftTitle(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            e.stopPropagation()
-                            if (e.key === "Enter") void saveRename(chat.id)
-                            if (e.key === "Escape") cancelRename()
-                          }}
-                          className="h-8 w-full rounded-lg border border-accent/35 bg-background px-2 text-sm font-semibold text-foreground outline-none ring-2 ring-accent/10"
-                          autoFocus
-                          maxLength={80}
-                          disabled={renamingChatId === chat.id}
-                        />
-                        <div className="mt-1 flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => void saveRename(chat.id, e)}
-                            disabled={renamingChatId === chat.id}
-                            className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                            aria-label="Save chat name"
-                            title="Save"
-                          >
-                            <Check className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelRename}
-                            className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                            aria-label="Cancel rename"
-                            title="Cancel"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-semibold leading-snug text-foreground">
-                          {chat.title}
-                        </p>
-                        <p className="mt-1 font-mono text-[10px] font-semibold text-muted-foreground/75">
-                          {formatDate(chat.created_at)}
-                        </p>
-                      </div>
-                    )}
-                    {editingChatId !== chat.id && (
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setOpenMenuId((id) => (id === chat.id ? null : chat.id))
-                          }}
-                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-muted hover:text-foreground"
-                          aria-label="Chat actions"
-                          aria-expanded={openMenuId === chat.id}
-                          title="Chat actions"
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-                        <AnimatePresence>
-                          {openMenuId === chat.id && (
-                            <motion.div
-                              className="absolute right-0 top-full z-30 mt-1 w-36 overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-float)]"
-                              initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                              exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                              transition={{ duration: 0.14 }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => beginRename(chat, e)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                              >
-                                <Pencil className="h-3.5 w-3.5 text-accent" />
-                                Rename
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  setOpenMenuId(null)
-                                  onDeleteChat(chat.id, e)
-                                }}
-                                className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                Delete
-                              </button>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    )}
+                  <div style={s.itemInner}>
+                    <div style={s.itemIcon}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                      </svg>
+                    </div>
+                    <div style={s.itemContent}>
+                      <span style={s.itemTitle}>{chat.title}</span>
+                      <span style={s.itemDate}>{formatDate(chat.created_at)}</span>
+                    </div>
+                    <button onClick={(e) => onDeleteChat(chat.id, e)} style={s.deleteBtn} title="Delete">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14H6L5 6" />
+                        <path d="M10 11v6M14 11v6" />
+                        <path d="M9 6V4h6v2" />
+                      </svg>
+                    </button>
                   </div>
-                  {activeChatId === chat.id && (
-                    <div className="absolute bottom-[20%] left-0 top-[20%] w-0.5 rounded-r bg-accent" />
-                  )}
+                  {activeChatId === chat.id && <div style={s.activeBar} />}
                 </motion.div>
               ))
             )}
           </div>
-    </motion.aside>
-  )
+        </motion.div>
+      </>
+    )}
+  </AnimatePresence>
+);
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {mode === "overlay" && (
-            <motion.div
-              className="fixed inset-0 z-10 bg-black/40 backdrop-blur-sm"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={onClose}
-            />
-          )}
-          {aside}
-        </>
-      )}
-    </AnimatePresence>
-  )
-}
+const s: Record<string, React.CSSProperties> = {
+  overlay: { position: "fixed", inset: 0, background: "#00000066", zIndex: 10, backdropFilter: "blur(2px)" },
+  sidebar: { position: "fixed", top: 0, left: 0, bottom: 0, width: "300px", zIndex: 11, background: "#0a0a10", borderRight: "1px solid #1e1e2a", display: "flex", flexDirection: "column" },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 18px 16px", borderBottom: "1px solid #1a1a24" },
+  title: { fontSize: "10px", letterSpacing: "0.25em", color: "#c9a84c", fontWeight: 600 },
+  closeBtn: { background: "none", border: "none", cursor: "pointer", color: "#4a4a58", fontSize: "12px", padding: "2px 6px" },
+  newBtn: { display: "flex", alignItems: "center", gap: "8px", margin: "12px", padding: "10px 14px", borderRadius: "10px", border: "1px dashed #2a2a38", background: "transparent", color: "#6b6b78", fontSize: "10px", letterSpacing: "0.15em", fontWeight: 600, cursor: "pointer", fontFamily: "'DM Mono',monospace" },
+  divider: { height: "1px", background: "#1a1a24", margin: "0 12px" },
+  list: { flex: 1, overflowY: "auto", padding: "8px 0", scrollbarWidth: "thin", scrollbarColor: "#222230 transparent" },
+  loadingWrap: { display: "flex", flexDirection: "column", gap: "8px", padding: "12px" },
+  skeleton: { height: "56px", borderRadius: "10px", background: "#141420" },
+  empty: { fontSize: "12px", color: "#3a3a48", textAlign: "center", padding: "32px 16px" },
+  item: { position: "relative", cursor: "pointer", borderRadius: "10px", margin: "2px 8px", padding: "10px 12px", transition: "background 0.15s" },
+  itemActive: { background: "#141420" },
+  activeBar: { position: "absolute", left: 0, top: "20%", bottom: "20%", width: "2px", borderRadius: "0 2px 2px 0", background: "#c9a84c" },
+  itemInner: { display: "flex", alignItems: "center", gap: "10px" },
+  itemIcon: { color: "#3a3a50", flexShrink: 0 },
+  itemContent: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "3px" },
+  itemTitle: { fontSize: "12px", color: "#b0b0c0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontFamily: "'DM Sans',sans-serif" },
+  itemDate: { fontSize: "10px", color: "#3a3a50", letterSpacing: "0.04em" },
+  deleteBtn: { background: "none", border: "none", cursor: "pointer", color: "#3a3a50", padding: "4px", borderRadius: "6px", flexShrink: 0 },
+};

@@ -2,8 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { ensureSupabaseUser, getPrimaryEmail } from "./userService.js";
 
+/**
+ * Fetch the stored GitHub access token for the given Supabase user ID.
+ * The user ID here is the internal Supabase UUID, not the Clerk user ID.
+ */
 export async function getUserGithubToken(
-  userId: string   // ← this is supabase UUID
+  userId: string,
 ): Promise<string | null> {
 
   console.log("🔍 Looking for token with supabase userId:", userId)
@@ -23,6 +27,8 @@ export async function getUserGithubToken(
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
+// The OAuth state payload is signed with a shared secret to guard against CSRF.
+// Uses GITHUB_OAUTH_STATE_SECRET if provided, otherwise falls back to the Clerk secret.
 function stateSecret(): string {
   const s =
     process.env.GITHUB_OAUTH_STATE_SECRET ?? process.env.CLERK_SECRET_KEY;
@@ -30,6 +36,7 @@ function stateSecret(): string {
   return s;
 }
 
+// Validate required GitHub OAuth environment variables before building request URLs.
 function githubEnv() {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
@@ -42,6 +49,10 @@ function githubEnv() {
   return { clientId, clientSecret, redirectUri };
 }
 
+/**
+ * Build the GitHub OAuth authorization URL for the current Clerk user.
+ * The request state is signed to protect against CSRF and replay attacks.
+ */
 export function buildAuthorizeUrl(clerkUserId: string): string {
   const { clientId, redirectUri } = githubEnv();
   const payload = Buffer.from(
@@ -63,6 +74,7 @@ export function buildAuthorizeUrl(clerkUserId: string): string {
 }
 
 function safeEqualHex(a: string, b: string): boolean {
+  // Timing-safe comparison to protect against length-based signature attacks.
   try {
     const ba = Buffer.from(a, "hex");
     const bb = Buffer.from(b, "hex");

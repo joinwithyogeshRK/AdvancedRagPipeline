@@ -4,96 +4,15 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY!
 })
 
-const BROAD_REPOSITORY_HINTS = [
-  'architecture', 'codebase', 'entire project', 'full flow', 'overall flow',
-  'end to end', 'end-to-end', 'how does this code work', 'how does this project work',
-  'explain the project', 'explain this project', 'project overview', 'system design',
-  'walk me through', 'main components', 'complete flow',
-]
-
-const DEFAULT_REPOSITORY_SEARCH_FACETS = [
-  'server entry point route registration authentication middleware frontend API request flow',
-  'github repository indexing document ingestion chunking embedding vector storage pinecone',
-  'query expansion hyde voyage embeddings pinecone hybrid search bm25 cohere reranking',
-  'package.json dependencies imports SDK clients API endpoints groq supabase answer generation chat persistence response',
-]
-
-const PROVIDER_MANIFEST_SEARCH =
-  'package.json dependencies imports SDK clients API endpoints voyage embeddings pinecone vector database cohere reranker groq llm supabase'
-
-export function isBroadRepositoryQuery(query: string): boolean {
-  const lower = query.toLowerCase()
-  return BROAD_REPOSITORY_HINTS.some(hint => lower.includes(hint))
-}
-
-function parseSearchQueries(content: string): string[] {
-  try {
-    const json = content.replace(/```(?:json)?|```/g, '').trim()
-    const parsed: unknown = JSON.parse(json)
-    if (!Array.isArray(parsed)) return []
-
-    return parsed
-      .filter((query): query is string => typeof query === 'string')
-      .map(query => query.trim())
-      .filter(Boolean)
-      .slice(0, 4)
-  } catch {
-    return []
-  }
-}
-
-export async function generateRepositorySearchQueries(
-  query: string,
-  repository: string,
-): Promise<string[]> {
-  console.log('\n🧭 HyDE — Generating repository search facets...')
-
-  const response = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
-    messages: [
-      {
-        role: 'system',
-        content:
-          `You create internal search queries for a source-code repository.
-           Expand the user's broad repository question into exactly 4 focused search queries
-           that retrieve complementary implementation evidence. Cover different parts of the
-           requested flow. For architecture questions, cover entry points and routes, indexing
-           and storage, query-time retrieval, and external provider clients or package manifests
-           such as package.json. Preserve exact identifiers from the question.
-           Do not answer the question. Do not invent repository-specific identifiers.
-           Return only a JSON array of 4 strings.`
-      },
-      {
-        role: 'user',
-        content: `Repository: ${repository}\nQuestion: ${query}`
-      }
-    ],
-    temperature: 0.2,
-    max_tokens:  320,
-  })
-
-  const generated = parseSearchQueries(response.choices[0]?.message?.content?.trim() ?? '')
-  const facets = generated.length === 4 ? generated : DEFAULT_REPOSITORY_SEARCH_FACETS
-  const queries = [query, ...facets, PROVIDER_MANIFEST_SEARCH]
-
-  console.log(`  🔎 Search facets: ${queries.length}`)
-  queries.forEach((searchQuery, i) => console.log(`    ${i + 1}. ${searchQuery.slice(0, 120)}`))
-
-  return queries
-}
-
 // ─────────────────────────────────────────────────────────────
 // GENERATE HYPOTHETICAL DOCUMENT
 // ─────────────────────────────────────────────────────────────
 
 export async function generateHypotheticalDocument(
-  query: string,
-  options: { repository?: string } = {}
+  query: string
 ): Promise<string> {
 
-  const isRepoQuery = !!options.repository
-
-  console.log(`\n💭 HyDE — Generating ${isRepoQuery ? 'repository retrieval passage' : 'hypothetical answer'}...`)
+  console.log('\n💭 HyDE — Generating hypothetical answer...')
 
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
@@ -101,16 +20,7 @@ export async function generateHypotheticalDocument(
       {
         role: 'system',
         content:
-          isRepoQuery
-          ? `You improve search queries for a source-code repository.
-             Given a user's question, write a compact retrieval passage that is likely
-             to match the relevant implementation. Preserve exact file names, function
-             names, classes, routes, and error messages from the question. Add closely
-             related code concepts and likely implementation terminology only when useful.
-             Focus on what code must be retrieved to answer the question thoroughly.
-             Do not answer the user, write a plan, or add headings.
-             Keep it under 140 words.`
-          : `You are a document passage generator.
+          `You are a document passage generator.
            Given a question, write a short factual passage (2-4 sentences)
            that would ANSWER this question if it existed in a real document.
            Write it as a statement — not as a question.
@@ -122,8 +32,8 @@ export async function generateHypotheticalDocument(
         content: query
       }
     ],
-    temperature: isRepoQuery ? 0.25 : 0.7,
-    max_tokens:  isRepoQuery ? 220 : 150,
+    temperature: 0.7,   // slight creativity — we want variation not rigidity
+    max_tokens:  150,
   })
 
   const hypothetical = response.choices[0]?.message?.content?.trim() ?? query

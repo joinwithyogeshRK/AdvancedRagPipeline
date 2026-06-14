@@ -1,16 +1,12 @@
 import type { Request, Response } from "express"
 import { createClient } from "@supabase/supabase-js"
-import { extractTextFromFile } from "../services/documentParseService.js"
+import { extractTextFromPDF } from "../services/ocrService.js"
 import { chunkText } from "../rag/chunker.js"
 import { embedChunks, embedQuery } from "../rag/embedder.js"
-import { searchPinecone, storeInPinecone } from "../rag/pinecone.js"
+import { storeInPinecone } from "../rag/pinecone.js"
 import { hybridSearch } from "../rag/hybridSearch.js"
 import { rerankChunks } from "../rag/reranker.js"
-import {
-  generateHypotheticalDocument,
-  generateRepositorySearchQueries,
-  isBroadRepositoryQuery,
-} from "../rag/hyde.js"
+import { generateHypotheticalDocument } from "../rag/hyde.js"
 import type { BM25Chunk } from "../rag/bm25.js"
 import type { MetadataFilter } from "../rag/pinecone.js"
 import { askGroq, isStructuralQuery } from "../rag/groq.js"
@@ -26,60 +22,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 )
 
-function selectDiverseRepositoryChunks(chunks: string[], limit: number): string[] {
-  const selected: string[] = []
-  const overflow: string[] = []
-  const fileCounts = new Map<string, number>()
-
-  for (const chunk of chunks) {
-    const filePath = chunk.match(/^\/\/ File: (.+)$/m)?.[1] ?? "(unknown)"
-    const count    = fileCounts.get(filePath) ?? 0
-
-    if (count < 3) {
-      selected.push(chunk)
-      fileCounts.set(filePath, count + 1)
-    } else {
-      overflow.push(chunk)
-    }
-  }
-
-  // Keep enough evidence even when a small repository has only a few files.
-  const minimum = Math.min(12, chunks.length, limit)
-  return [...selected, ...overflow.slice(0, Math.max(0, minimum - selected.length))]
-    .slice(0, limit)
-}
-
-function selectFacetEvidence(resultGroups: Awaited<ReturnType<typeof searchPinecone>>[]): string[] {
-  const selected: string[] = []
-  const seen = new Set<string>()
-
-  for (const group of resultGroups) {
-    let taken = 0
-
-    for (const chunk of group) {
-      if (seen.has(chunk.id)) continue
-
-      selected.push(chunk.text)
-      seen.add(chunk.id)
-      taken += 1
-
-      if (taken === 2) break
-    }
-  }
-
-  return selected
-}
-
 const pdf = async (req: Request, res: Response) => {
   try {
-    console.log("========== /query request ==========")
-    console.log("BODY:", req.body)
-    console.log("FILE FIELD:", req.file ? {
-      originalname: req.file.originalname,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-    } : null)
-    console.log("===================================")
     const file   = req.file
     const query  = req.body.query
     const userId = req.supabaseUserId!
@@ -90,11 +34,7 @@ const pdf = async (req: Request, res: Response) => {
     const filterBefore = req.body.filterBefore as number | undefined
 
     if (!query || !query.trim()) {
-      console.error("❌ Query missing. BODY received:", req.body)
-      return res.status(400).json({
-        error: "No query provided.",
-        receivedBody: req.body,
-      })
+      return res.status(400).json({ error: "No query provided." })
     }
 
     const metadataFilter: MetadataFilter | undefined = (() => {
@@ -111,28 +51,20 @@ const pdf = async (req: Request, res: Response) => {
 
     let bm25Chunks: BM25Chunk[] = []
 
-    // ── Process uploaded file if present ────────────────────
+    // ── Process PDF if uploaded ─────────────────────────────
     if (file && file.buffer) {
-      console.log(`📄 Processing file: ${file.originalname} (${file.size} bytes)`)
       let text: string
 
       try {
-        const result = await extractTextFromFile(
-          file.buffer,
-          file.originalname,
-          file.mimetype
-        )
+        const result = await extractTextFromPDF(file.buffer, file.originalname)
         text = result.text
         console.log(`✅ Step 1 — Text extracted via ${result.method} (${text.length} chars)`)
       } catch (extractionError: unknown) {
-        const extractionMessage = extractionError instanceof Error
-          ? extractionError.message
-          : "Unknown file extraction error"
-        console.error("File extraction failed:", extractionMessage)
+        console.error("PDF extraction failed:", extractionError)
         const msg  = extractionError instanceof Error ? extractionError.message : ""
         const safe = msg && !/_KEY|SECRET|TOKEN|password|environment variable/i.test(msg)
         return res.status(422).json({
-          error: safe ? msg : "We couldn't process this file. Try a different file or a smaller upload.",
+          error: safe ? msg : "We couldn't process this PDF. Try a different file or a smaller PDF.",
         })
       }
 
@@ -167,97 +99,54 @@ const pdf = async (req: Request, res: Response) => {
       }
     }
 
-    const isRepoQuery = filterSource?.startsWith("github:") ?? false
-    const repoName    = isRepoQuery ? filterSource!.replace("github:", "") : undefined
-    const isBroadRepoQuery = isRepoQuery && isBroadRepositoryQuery(query)
+    // Step 5 — HyDE + Embed
+    const hypothetical = await generateHypotheticalDocument(query)
+    const queryVector  = await embedQuery(hypothetical)
+    console.log("✅ Step 5 — HyDE generated + embedded")
 
-    let reranked
-
-    if (isBroadRepoQuery) {
-      // Broad repo questions need balanced evidence from several parts of the
-      // codebase, not a larger pile of results from one similarity search.
-      const searchQueries = await generateRepositorySearchQueries(query, repoName!)
-      const queryVectors  = await Promise.all(searchQueries.map(embedQuery))
-      const resultGroups  = await Promise.all(
-        queryVectors.map(vector => searchPinecone(vector, userId, 8, metadataFilter))
-      )
-      const uniqueChunks = Array.from(
-        new Map(resultGroups.flat().map(chunk => [chunk.id, chunk])).values()
-      )
-      const facetEvidence = selectFacetEvidence(resultGroups)
-
-      console.log(`✅ Step 5 — Multi-query repo retrieval found ${uniqueChunks.length} unique candidates`)
-      reranked = await rerankChunks(query, uniqueChunks.map(chunk => chunk.text), 24)
-
-      const rerankedChunks = reranked.map(chunk => chunk.text)
-      const balancedChunks = Array.from(new Set([...facetEvidence, ...rerankedChunks]))
-      reranked = balancedChunks.map((text, index) => ({
-        text,
-        relevanceScore: 0,
-        originalRank: index + 1,
-        newRank: index + 1,
-      }))
-    } else {
-      // Preserve exact code identifiers while adding related implementation terms
-      // to improve vector retrieval for focused repository and PDF questions.
-      const hypothetical = await generateHypotheticalDocument(query, repoName ? { repository: repoName } : {})
-      const retrievalText = isRepoQuery ? `${query}\n\n${hypothetical}` : hypothetical
-      const queryVector    = await embedQuery(retrievalText)
-      const retrievalTopK  = isRepoQuery ? 12 : 5
-      const rerankTopN     = isRepoQuery ? 8 : 5
-      const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId, retrievalTopK, metadataFilter)
-
-      console.log("✅ Step 5 — HyDE generated + embedded")
-      reranked = await rerankChunks(query, hybridChunks.map(chunk => chunk.text), rerankTopN)
-    }
-
-    const rerankedChunks = reranked.map(c => c.text)
-    const relevantChunks = isBroadRepoQuery
-      ? selectDiverseRepositoryChunks(rerankedChunks, 20)
-      : rerankedChunks
+    // Step 6 — Hybrid Search → Rerank
+    const hybridChunks   = await hybridSearch(queryVector, query, bm25Chunks, userId, 5, metadataFilter)
+    const reranked       = await rerankChunks(query, hybridChunks.map(c => c.text))
+    const relevantChunks = reranked.map(c => c.text)
     console.log(`✅ Step 6 — ${relevantChunks.length} chunks reranked and ready`)
 
     // ── Step 6b — Repo tree injection ──────────────────────
     // If user is querying a specific repo AND query is structural
     // fetch the full tree from Supabase and pass to Groq
-    let repoContext: { repoName: string; tree: any[]; broadQuery?: boolean } | undefined
+    let repoContext: { repoName: string; tree: any[] } | undefined
 
+    const isRepoQuery    = filterSource?.startsWith("github:")
     const isStructural   = isStructuralQuery(query)
 
     if (isRepoQuery) {
-      if (isStructural || isBroadRepoQuery) {
+      const repoName = filterSource!.replace("github:", "")
+
+      if (isStructural) {
         // Structural query — fetch full tree
-        console.log(`🌳 Repository overview requested — fetching tree for ${repoName!}`)
+        console.log(`🌳 Structural query detected — fetching tree for ${repoName}`)
 
         const { data, error } = await supabase
           .from("repo_trees")
           .select("tree, repo_name")
           .eq("user_id", userId)
-          .eq("repo_name", repoName!)
+          .eq("repo_name", repoName)
           .single()
 
         if (!error && data) {
           repoContext = {
             repoName: data.repo_name,
             tree:     data.tree ?? [],
-            broadQuery: isBroadRepoQuery,
           }
           console.log(`✅ Tree loaded: ${repoContext.tree.length} files`)
         } else {
           console.warn("⚠️  Could not fetch repo tree:", error?.message)
-          repoContext = {
-            repoName: repoName!,
-            tree: [],
-            broadQuery: isBroadRepoQuery,
-          }
         }
       } else {
         // Non-structural repo query — still inject repo name so Groq
         // knows which repo is being discussed
         repoContext = {
-          repoName: repoName!,
+          repoName,
           tree: [],   // empty tree — Groq won't show file list
-          broadQuery: isBroadRepoQuery,
         }
       }
     }
@@ -307,7 +196,6 @@ const pdf = async (req: Request, res: Response) => {
         filter:          metadataFilter ?? null,
         repoTreeInjected: !!repoContext,
         structuralQuery:  isStructural ?? false,
-        broadRepoQuery:    isBroadRepoQuery,
       },
     })
 

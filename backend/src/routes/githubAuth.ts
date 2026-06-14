@@ -10,6 +10,10 @@ import {
 
 const router = Router();
 
+/**
+ * Determine the frontend base URL used for OAuth redirects.
+ * Priority: FRONTEND_APP_URL, FRONTEND_ORIGINS, fallback production URL.
+ */
 function frontendBase(): string {
   const explicit = process.env.FRONTEND_APP_URL?.trim();
   if (explicit) return explicit.replace(/\/$/, "");
@@ -17,9 +21,10 @@ function frontendBase(): string {
     .map((o) => o.trim())
     .filter(Boolean)[0];
   if (fromList) return fromList.replace(/\/$/, "");
-  return "https://advanced-rag-pipeline.vercel.app";
+  return "https://oracle-lyart-six.vercel.app";
 }
 
+// Initiate GitHub OAuth using the Clerk session identity.
 router.get("/start", requireClerkSession, (req: Request, res: Response) => {
   try {
     const url = buildAuthorizeUrl(req.clerkUserId!);
@@ -42,6 +47,7 @@ router.get("/status", requireClerkSession, async (req: Request, res: Response) =
   }
 });
 
+// Handle GitHub OAuth callback and save the exchanged GitHub token.
 router.get("/callback", async (req: Request, res: Response) => {
   const base = frontendBase();
   const fail = (code: string) =>

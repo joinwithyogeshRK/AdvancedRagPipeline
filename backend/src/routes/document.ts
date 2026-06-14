@@ -9,20 +9,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY!
 )
 const pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! })
-const index    = pinecone.index("rag-index")
+const index    = pinecone.index("oracle")
 
 router.use(requireClerkSession)
 
 // ─────────────────────────────────────────────────────────────
 // GET /documents/list
-// Returns all uploaded files + repos for this user from Supabase
-// Files come from documents table, repos from repo_trees table
+// Returns all PDFs + repos for this user from Supabase
+// PDFs come from documents table, repos from repo_trees table
 // ─────────────────────────────────────────────────────────────
 router.get("/list", async (req: Request, res: Response) => {
   try {
     const userId = req.supabaseUserId!
 
-    // Fetch uploaded files from documents table
+    // Fetch PDFs from documents table
     const { data: docRows, error: docError } = await supabase
       .from("documents")
       .select("source, uploaded_at")
@@ -40,9 +40,9 @@ router.get("/list", async (req: Request, res: Response) => {
 
     if (repoError) throw repoError
 
-    // Deduplicate uploaded files by source
+    // Deduplicate PDFs by source
     const seen    = new Set<string>()
-    const fileDocs = (docRows ?? []).filter((row: any) => {
+    const pdfDocs = (docRows ?? []).filter((row: any) => {
       if (seen.has(row.source)) return false
       seen.add(row.source)
       return true
@@ -55,14 +55,15 @@ router.get("/list", async (req: Request, res: Response) => {
 
     // Map repos to same shape with github: prefix
     const repoDocs = (repoRows ?? []).map((row: any) => ({
+      // Prefix GitHub repos so the frontend can distinguish repository sources from file uploads.
       source:     `github:${row.repo_name}`,
       uploadedAt: row.indexed_at,
     }))
 
-    // Combine — uploaded files first, then repos
-    const documents = [...fileDocs, ...repoDocs]
+    // Combine — PDFs first, then repos so the UI can show uploaded documents before indexed repos.
+    const documents = [...pdfDocs, ...repoDocs]
 
-    console.log(`✅ Documents list: ${fileDocs.length} files + ${repoDocs.length} repos`)
+    console.log(`✅ Documents list: ${pdfDocs.length} PDFs + ${repoDocs.length} repos`)
     res.json({ documents })
 
   } catch (err) {
@@ -74,7 +75,7 @@ router.get("/list", async (req: Request, res: Response) => {
 // ─────────────────────────────────────────────────────────────
 // DELETE /documents/delete
 // Body: { source: string }
-// Handles both uploaded files (source = filename) and repos (source = github:owner/repo)
+// Handles both PDFs (source = filename) and repos (source = github:owner/repo)
 // Deletes from Pinecone + Supabase
 // ─────────────────────────────────────────────────────────────
 router.delete("/delete", async (req: Request, res: Response) => {
@@ -87,10 +88,13 @@ router.delete("/delete", async (req: Request, res: Response) => {
       return
     }
 
+    // A GitHub repo source is identified by the github: prefix and is stored in repo_trees.
     const isRepo = source.startsWith("github:")
-    console.log(`🗑  Delete — user: ${userId}  source: ${source}  type: ${isRepo ? "repo" : "file"}`)
+    console.log(`🗑  Delete — user: ${userId}  source: ${source}  type: ${isRepo ? "repo" : "pdf"}`)
 
     // ── 1. Collect Pinecone vector IDs ──────────────────────
+    // The query uses a zero vector plus a metadata filter to identify all vectors
+    // belonging to this source for the current user.
     const queryRes = await index.query({
       vector:          new Array(1024).fill(0),
       topK:            10000,
@@ -139,7 +143,7 @@ router.delete("/delete", async (req: Request, res: Response) => {
       }
       console.log(`  ✅ Supabase repo_trees: deleted ${repoName}`)
     } else {
-      // Uploaded file — delete from documents
+      // PDF — delete from documents
       const { error, count } = await supabase
         .from("documents")
         .delete({ count: "exact" })

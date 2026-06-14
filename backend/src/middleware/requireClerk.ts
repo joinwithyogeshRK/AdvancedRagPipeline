@@ -2,6 +2,8 @@ import type { Request, Response, NextFunction } from "express";
 import { verifyToken } from "@clerk/backend";
 import { ensureSupabaseUser, getPrimaryEmail } from "../services/userService.js";
 
+// Middleware that requires an authenticated Clerk session and ensures the request
+// is attached to a Supabase user record for downstream route handlers.
 export async function requireClerkSession(
   req: Request,
   res: Response,

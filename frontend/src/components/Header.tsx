@@ -1,131 +1,130 @@
-import { motion } from "framer-motion"
-import { Menu, Plus } from "lucide-react"
-import { Show, UserButton } from "@clerk/react"
-import { AuthSection } from "./AuthSection"
-import { GithubOAuth } from "./GithubOAuth"
-import { ThemeToggle } from "@/components/ui/theme-toggle"
-import { getClerkAppearance } from "@/lib/clerk-appearance"
-import { useTheme } from "@/context/theme"
+import { motion } from "framer-motion";
+import {
+  Show,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from "@clerk/react";
+import { GithubOAuth } from "./GithubOAuth";
 
 interface Props {
-  chatId: string | null
-  file: File | null
-  fileName: string
-  onRemoveFile: () => void
-  onNewChat: () => void
-  onOpenSidebar: () => void
+  chatId: string | null;
+  file: File | null;
+  fileName: string;
+  onRemoveFile: () => void;
+  onNewChat: () => void;
+  onOpenSidebar: () => void;
 }
 
-const iconBtn =
-  "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card/80 text-muted-foreground shadow-sm transition-colors hover:border-accent/50 hover:bg-white hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 dark:hover:bg-muted sm:h-9 sm:w-9"
+export const Header = ({ chatId, file, fileName, onRemoveFile, onNewChat, onOpenSidebar }: Props) => (
+  <motion.header
+    className="app-header"
+    style={s.header}
+    initial={{ opacity: 0, y: -20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+  >
+    <div className="app-header-left" style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
+      <motion.button
+        onClick={onOpenSidebar}
+        style={s.sidebarToggle}
+        whileHover={{ borderColor: "#c9a84c99", color: "#c9a84c" }}
+        whileTap={{ scale: 0.95 }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+      </motion.button>
 
-export const Header = ({
-  chatId,
-  file,
-  fileName,
-  onRemoveFile,
-  onNewChat,
-  onOpenSidebar,
-}: Props) => {
-  const { theme } = useTheme()
-  const clerkAppearance = getClerkAppearance(theme)
-
-  return (
-    <motion.header
-      className="mb-1.5 flex shrink-0 flex-col gap-2 px-1 py-1.5 sm:mb-3 sm:gap-3 sm:px-2 sm:py-2.5 lg:mb-4 lg:px-3 lg:py-3"
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <motion.button
-            type="button"
-            onClick={onOpenSidebar}
-            className={iconBtn}
-            whileTap={{ scale: 0.95 }}
-            aria-label="Open chat history"
-          >
-            <Menu className="h-4 w-4" />
-          </motion.button>
-
-          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2.5">
-            <div className="relative flex h-8 w-8 shrink-0 items-center justify-center sm:h-9 sm:w-9 lg:h-10 lg:w-10">
-              <motion.div
-                className="absolute inset-0 rounded-full border border-transparent border-t-accent border-r-[color:var(--brand-secondary)]/50"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
-              />
-              <div className="h-3.5 w-3.5 rounded-full bg-[linear-gradient(135deg,var(--accent),var(--brand-secondary))] shadow-[0_0_18px_color-mix(in_srgb,var(--accent)_32%,transparent)] sm:h-4 sm:w-4 lg:h-[18px] lg:w-[18px]" />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-[11px] font-bold tracking-[0.2em] text-accent sm:text-xs sm:tracking-[0.24em] lg:text-sm lg:tracking-[0.28em]">
-                ORACLE
-              </div>
-              <div className="hidden truncate text-[8px] tracking-[0.12em] text-muted-foreground sm:mt-0.5 md:block lg:text-[9px] lg:tracking-[0.14em]">
-                RAG Intelligence Engine
-              </div>
-            </div>
-          </div>
+      <div style={s.brand}>
+        <div style={s.brandIcon}>
+          <motion.div style={s.brandRing} animate={{ rotate: 360 }} transition={{ duration: 12, repeat: Infinity, ease: "linear" }} />
+          <div style={s.brandCore} />
         </div>
-
-        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5 lg:gap-2">
-          <motion.button
-            type="button"
-            onClick={onNewChat}
-            className={iconBtn}
-            whileTap={{ scale: 0.95 }}
-            aria-label="New chat"
-            title="New chat"
-          >
-            <Plus className="h-4 w-4" />
-          </motion.button>
-
-          <ThemeToggle className="h-9 w-9" />
-
-          <Show when="signed-in">
-            <GithubOAuth />
-            <UserButton
-              appearance={{
-                ...clerkAppearance,
-                elements: {
-                  ...clerkAppearance.elements,
-                  userButtonAvatarBox: { width: 32, height: 32 },
-                },
-              }}
-            />
-          </Show>
+        <div>
+          <div className="header-brand-name" style={s.brandName}>ORACLE</div>
+          <div className="header-brand-sub" style={s.brandSub}>RAG Intelligence Engine</div>
         </div>
       </div>
+    </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {chatId && (
-            <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 font-mono text-[9px] tracking-wider text-accent/80 shadow-sm sm:px-2.5 sm:py-1 sm:text-[10px]">
-              #{chatId.slice(0, 8)}
-            </span>
-          )}
-          {file && (
-            <span className="flex max-w-[120px] items-center gap-1 rounded-full border border-success/30 bg-success/10 px-2 py-0.5 sm:max-w-[140px] sm:px-2.5 sm:py-1">
-              <span className="truncate font-mono text-[9px] text-success sm:text-[10px]">
-                {fileName}
-              </span>
-              <button
-                type="button"
-                onClick={onRemoveFile}
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-                aria-label="Remove file"
-              >
-                ×
-              </button>
-            </span>
-          )}
-        </div>
+    <div className="app-header-right" style={s.headerRight}>
+      {chatId && (
+        <motion.div className="header-chat-id" style={s.chatIdPill} initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}>
+          <span style={s.chatIdText}>#{chatId.slice(0, 8)}</span>
+        </motion.div>
+      )}
 
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
-          <AuthSection />
-        </div>
+      {file && (
+        <motion.div style={s.headerFilePill} initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#c9a84c" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+          <span style={s.headerFileText}>{fileName}</span>
+          <button onClick={onRemoveFile} style={s.headerFileX}>✕</button>
+        </motion.div>
+      )}
+
+      <motion.button onClick={onNewChat} style={s.newChatBtn} whileHover={{ borderColor: "#c9a84c99", color: "#c9a84c" }} whileTap={{ scale: 0.95 }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+        <span className="header-new-chat-label">NEW CHAT</span>
+      </motion.button>
+
+      <div className="header-live-pill" style={s.livePill}>
+        <motion.span style={s.liveDot} animate={{ opacity: [1, 0.3, 1], scale: [1, 0.8, 1] }} transition={{ duration: 2, repeat: Infinity }} />
+        <span style={s.liveLabel}>LIVE</span>
       </div>
-    </motion.header>
-  )
-}
+
+      <Show when="signed-out">
+        <SignInButton mode="modal">
+          <button type="button" className="header-auth-trigger" style={s.authTrigger}>
+            Sign in
+          </button>
+        </SignInButton>
+        <SignUpButton mode="modal">
+          <button type="button" className="header-auth-trigger header-signup" style={{ ...s.authTrigger, color: "#9a9aa8" }}>
+            Sign up
+          </button>
+        </SignUpButton>
+      </Show>
+      <Show when="signed-in">
+        <GithubOAuth />
+        <UserButton
+          appearance={{
+            elements: {
+              userButtonAvatarBox: { width: 32, height: 32 },
+            },
+          }}
+        />
+      </Show>
+    </div>
+  </motion.header>
+);
+
+const s: Record<string, React.CSSProperties> = {
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px", flexShrink: 0, padding: "0 4px", minWidth: 0, maxWidth: "100%", flexWrap: "wrap", gap: "10px" },
+  brand: { display: "flex", alignItems: "center", gap: "14px" },
+  brandIcon: { width: "42px", height: "42px", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" },
+  brandRing: { position: "absolute", inset: 0, borderRadius: "50%", border: "1.5px solid transparent", borderTopColor: "#c9a84c", borderRightColor: "#c9a84c44" },
+  brandCore: { width: "18px", height: "18px", borderRadius: "50%", background: "radial-gradient(circle, #c9a84c 0%, #7a5820 100%)", boxShadow: "0 0 12px #c9a84c60" },
+  brandName: { fontSize: "16px", fontWeight: 700, letterSpacing: "0.3em", color: "#c9a84c", lineHeight: 1 },
+  brandSub: { fontSize: "9px", letterSpacing: "0.15em", color: "#6b6b78", marginTop: "4px", fontWeight: 400 },
+  headerRight: { display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", minWidth: 0, maxWidth: "100%", justifyContent: "flex-end" },
+  chatIdPill: { display: "flex", alignItems: "center", padding: "5px 11px", borderRadius: "999px", border: "1px solid #c9a84c33", background: "#c9a84c0a" },
+  chatIdText: { fontSize: "10px", color: "#c9a84c88", letterSpacing: "0.1em" },
+  headerFilePill: { display: "flex", alignItems: "center", gap: "7px", padding: "5px 11px", borderRadius: "999px", border: "1px solid #4ade8033", background: "#4ade800d" },
+  headerFileText: { fontSize: "10px", color: "#4ade80", maxWidth: "72px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  headerFileX: { background: "none", border: "none", cursor: "pointer", color: "#6b6b78", fontSize: "10px", padding: 0, lineHeight: 1 },
+  newChatBtn: { display: "flex", alignItems: "center", gap: "6px", padding: "6px 14px", borderRadius: "999px", border: "1px solid #222230", background: "#111118", color: "#6b6b78", fontSize: "9px", letterSpacing: "0.15em", fontWeight: 600, cursor: "pointer", fontFamily: "'DM Mono',monospace", transition: "all 0.2s" },
+  livePill: { display: "flex", alignItems: "center", gap: "7px", padding: "6px 14px", borderRadius: "999px", border: "1px solid #222230", background: "#111118" },
+  liveDot: { display: "inline-block", width: "6px", height: "6px", borderRadius: "50%", background: "#4ade80", boxShadow: "0 0 8px #4ade8088" },
+  liveLabel: { fontSize: "9px", letterSpacing: "0.2em", color: "#6b6b78", fontWeight: 600 },
+  sidebarToggle: { display: "flex", alignItems: "center", justifyContent: "center", width: "36px", height: "36px", borderRadius: "10px", border: "1px solid #222230", background: "#111118", color: "#6b6b78", cursor: "pointer", flexShrink: 0, transition: "all 0.2s" },
+  authTrigger: { padding: "6px 12px", borderRadius: 999, border: "1px solid #222230", background: "#111118", color: "#c9a84c", fontSize: 9, letterSpacing: "0.12em", fontWeight: 600, cursor: "pointer", fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap" },
+};

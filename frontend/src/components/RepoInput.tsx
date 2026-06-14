@@ -1,27 +1,25 @@
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { X } from "lucide-react"
-import { GithubIcon } from "./icons/GithubIcon"
-import { cn } from "@/lib/utils"
 
 interface Props {
-  signedIn: boolean
-  isIndexing: boolean
-  onIndex: (url: string) => void
-  onClose: () => void
-  className?: string
+  signedIn:    boolean
+  isIndexing:  boolean
+  onIndex:     (url: string) => void
+  onClose:     () => void
 }
 
+
+// Validate GitHub URL on frontend before sending
 function validateGithubUrl(url: string): string | null {
-  if (!url.trim()) return "Please enter a GitHub URL"
-  if (!url.includes("github.com")) return "Must be a GitHub URL"
+  if (!url.trim()) return 'Please enter a GitHub URL'
+  if (!url.includes('github.com')) return 'Must be a GitHub URL'
   const match = url.match(/github\.com\/([^/]+)\/([^/\s]+)/)
-  if (!match) return "Format: https://github.com/owner/repo"
-  return null
+  if (!match) return 'Format: https://github.com/owner/repo'
+  return null  // null = valid
 }
 
-export const RepoInput = ({ isIndexing, onIndex, onClose, className }: Props) => {
-  const [url, setUrl] = useState("")
+export const RepoInput = ({ isIndexing, onIndex, onClose }: Props) => {
+  const [url,   setUrl]   = useState("")
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = () => {
@@ -36,59 +34,50 @@ export const RepoInput = ({ isIndexing, onIndex, onClose, className }: Props) =>
 
   return (
     <motion.div
-      className={cn(
-        "glass-panel flex flex-col gap-2.5 rounded-xl border border-border p-3.5",
-        className
-      )}
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 8, scale: 0.98 }}
-      transition={{ duration: 0.18 }}
+      style={s.wrap}
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.2 }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <GithubIcon className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-mono text-[11px] tracking-wide text-muted-foreground">
-            Index repository
-          </span>
+      {/* Header */}
+      <div style={s.header}>
+        <div style={s.headerLeft}>
+          {/* GitHub icon */}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="#6b6b78">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span style={s.title}>Index GitHub Repository</span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label="Close"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <button type="button" onClick={onClose} style={s.closeBtn}>✕</button>
       </div>
 
-      <div className="flex gap-2">
+      {/* URL input */}
+      <div style={s.inputRow}>
         <input
-          className={cn(
-            "min-w-0 flex-1 rounded-lg border bg-white/60 px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-accent/50 focus:ring-1 focus:ring-accent/30 dark:bg-muted/50",
-            error ? "border-destructive/60" : "border-input"
-          )}
+          style={{
+            ...s.input,
+            ...(error ? s.inputError : {}),
+          }}
           type="text"
           placeholder="https://github.com/owner/repo"
           value={url}
-          onChange={(e) => {
-            setUrl(e.target.value)
-            setError(null)
-          }}
-          onKeyDown={(e) => e.key === "Enter" && !isIndexing && handleSubmit()}
+          onChange={(e) => { setUrl(e.target.value); setError(null) }}
+          onKeyDown={(e) => e.key === 'Enter' && !isIndexing && handleSubmit()}
           disabled={isIndexing}
           autoFocus
         />
+
         <motion.button
           type="button"
           onClick={handleSubmit}
           disabled={isIndexing || !url.trim()}
-          className={cn(
-            "shrink-0 rounded-lg bg-[linear-gradient(135deg,var(--accent),var(--brand-secondary))] px-4 py-2 font-mono text-[11px] font-semibold text-accent-foreground shadow-sm transition-opacity",
-            (isIndexing || !url.trim()) && "cursor-not-allowed opacity-40"
-          )}
-          whileHover={!isIndexing && url.trim() ? { scale: 1.03 } : {}}
-          whileTap={!isIndexing && url.trim() ? { scale: 0.97 } : {}}
+          style={{
+            ...s.indexBtn,
+            ...((isIndexing || !url.trim()) ? s.indexBtnOff : {})
+          }}
+          whileHover={!isIndexing && url.trim() ? { scale: 1.04 } : {}}
+          whileTap={!isIndexing && url.trim() ? { scale: 0.95 } : {}}
         >
           {isIndexing ? (
             <motion.span
@@ -97,52 +86,159 @@ export const RepoInput = ({ isIndexing, onIndex, onClose, className }: Props) =>
             >
               indexing…
             </motion.span>
-          ) : (
-            "Index"
-          )}
+          ) : 'Index'}
         </motion.button>
       </div>
 
+      {/* Error */}
       <AnimatePresence>
         {error && (
-          <motion.p
-            className="font-mono text-[10px] text-destructive"
+          <motion.div
+            style={s.errorMsg}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
           >
-            {error}
-          </motion.p>
+            ⚠ {error}
+          </motion.div>
         )}
       </AnimatePresence>
 
+      {/* Hint */}
       {!error && (
-        <p className="font-mono text-[9px] leading-relaxed text-muted-foreground/70">
-          Public repos only · node_modules, dist and binaries are skipped
-        </p>
+        <div style={s.hint}>
+          Public repos only · node_modules, dist and binaries are skipped automatically
+        </div>
       )}
 
+      {/* Progress indicator when indexing */}
       <AnimatePresence>
         {isIndexing && (
           <motion.div
-            className="space-y-2"
+            style={s.progressWrap}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            <div className="relative h-0.5 overflow-hidden rounded-full bg-muted">
-              <motion.div
-                className="absolute inset-y-0 w-2/5 bg-gradient-to-r from-transparent via-accent to-transparent"
-                animate={{ x: ["-100%", "250%"] }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-              />
-            </div>
-            <p className="font-mono text-[9px] text-muted-foreground">
+            <motion.div
+              style={s.progressBar}
+              animate={{ x: ['-100%', '100%'] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+            />
+            <span style={s.progressText}>
               Fetching files, chunking and embedding — this may take a minute…
-            </p>
+            </span>
           </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
   )
+}
+
+const s: Record<string, React.CSSProperties> = {
+  wrap: {
+    background:   "#0e0e14",
+    border:       "1px solid #1e1e2c",
+    borderRadius: "14px",
+    padding:      "14px 16px",
+    display:      "flex",
+    flexDirection: "column",
+    gap:          "10px",
+  },
+  header: {
+    display:        "flex",
+    alignItems:     "center",
+    justifyContent: "space-between",
+  },
+  headerLeft: {
+    display:    "flex",
+    alignItems: "center",
+    gap:        "8px",
+  },
+  title: {
+    fontSize:      "11px",
+    color:         "#9a9ab0",
+    fontFamily:    "'DM Mono',monospace",
+    letterSpacing: "0.06em",
+  },
+  closeBtn: {
+    background: "none",
+    border:     "none",
+    color:      "#3a3a50",
+    cursor:     "pointer",
+    fontSize:   "12px",
+    padding:    "2px 6px",
+    borderRadius: "6px",
+  },
+  inputRow: {
+    display: "flex",
+    gap:     "8px",
+  },
+  input: {
+    flex:          1,
+    background:    "#0a0a10",
+    border:        "1px solid #222230",
+    borderRadius:  "10px",
+    padding:       "9px 14px",
+    color:         "#e0e0ec",
+    fontSize:      "12px",
+    fontFamily:    "'DM Mono',monospace",
+    outline:       "none",
+    letterSpacing: "0.02em",
+  },
+  inputError: {
+    borderColor: "#f8717166",
+  },
+  indexBtn: {
+    padding:      "9px 18px",
+    borderRadius: "10px",
+    border:       "none",
+    background:   "linear-gradient(135deg, #c9a84c 0%, #9a7228 100%)",
+    color:        "#08080a",
+    fontSize:     "11px",
+    fontFamily:   "'DM Mono',monospace",
+    fontWeight:   600,
+    cursor:       "pointer",
+    flexShrink:   0,
+    letterSpacing: "0.04em",
+  },
+  indexBtnOff: {
+    opacity: 0.3,
+    cursor:  "not-allowed",
+  },
+  errorMsg: {
+    fontSize:   "10px",
+    color:      "#f87171",
+    fontFamily: "'DM Mono',monospace",
+    padding:    "4px 2px",
+  },
+  hint: {
+    fontSize:      "9px",
+    color:         "#2e2e3c",
+    fontFamily:    "'DM Mono',monospace",
+    letterSpacing: "0.04em",
+  },
+  progressWrap: {
+    position:     "relative",
+    height:       "2px",
+    background:   "#1a1a24",
+    borderRadius: "2px",
+    overflow:     "hidden",
+    marginTop:    "4px",
+  },
+  progressBar: {
+    position:   "absolute",
+    inset:      0,
+    background: "linear-gradient(90deg, transparent, #c9a84c, transparent)",
+    width:      "40%",
+  },
+  progressText: {
+    position:   "absolute",
+    top:        "8px",
+    left:       0,
+    fontSize:   "9px",
+    color:      "#3a3a50",
+    fontFamily: "'DM Mono',monospace",
+    whiteSpace: "nowrap",
+  },
 }

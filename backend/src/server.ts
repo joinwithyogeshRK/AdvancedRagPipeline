@@ -1,19 +1,18 @@
 import "dotenv/config";
-import express, { type Request, type Response, type NextFunction } from "express";
+import express from "express";
 import cors from "cors";
 import { Router } from "express";
-import multer, { MulterError } from "multer";
+import multer from "multer";
 import test from "./routes/pdf.js";
 import historyRouter from "./routes/history.js";
 import githubAuthRouter from "./routes/githubAuth.js";
 import { requireClerkSession } from "./middleware/requireClerk.js";
 import documentRouter from "./routes/document.js";
 import transcribeRouter from "./routes/transcribe.js";
-import githubRouter from "./routes/github.js";
+import githubRouter from "./routes/github.js";          // ← ADD
 
 const defaultOrigins = [
-  "https://advanced-rag-pipeline.vercel.app",
-  "https://advanced-rag-pipeline-git-test-joinwithyogesh17-9788s-projects.vercel.app",
+  "https://oracle-lyart-six.vercel.app",
   "http://localhost:5173"
 ];
 const origins =
@@ -27,50 +26,24 @@ app.use(express.json());
 app.use(
   cors({
     origin: origins,
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
 const PORT = process.env.PORT || 3009;
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: Number(process.env.MAX_UPLOAD_SIZE_BYTES ?? 50 * 1024 * 1024),
-  },
-});
-
-const uploadSingle = upload.single("File");
-
-function handleUpload(req: Request, res: Response, next: NextFunction) {
-  uploadSingle(req, res, (err: unknown) => {
-    if (err instanceof MulterError) {
-      if (err.code === "LIMIT_FILE_SIZE") {
-        return res.status(413).json({ error: "File too large. Maximum size is 50 MB." })
-      }
-      if (err.code === "LIMIT_UNEXPECTED_FILE") {
-        return res.status(400).json({ error: `Unexpected field: expected "File"` })
-      }
-      return res.status(400).json({ error: `Upload error: ${err.message}` })
-    }
-    if (err) {
-      console.error("Upload middleware error:", err)
-      return res.status(500).json({ error: "File upload failed." })
-    }
-    next()
-  })
-}
+const data = multer().single("File");
 
 const router1 = Router();
 app.use(router1);
 
-router1.post("/query",           requireClerkSession, handleUpload, test);
+router1.post("/query",           requireClerkSession, data, test);
 router1.use("/history",          historyRouter);
 router1.use("/auth/github",      githubAuthRouter);
 router1.use("/documents",        documentRouter);
 router1.use("/transcribe",       requireClerkSession, transcribeRouter);
-router1.use("/github",           githubRouter);
+router1.use("/github",           githubRouter);          // ← ADD
 
 app.listen(PORT, function (err: unknown) {
   if (err) console.log(err);
