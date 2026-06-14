@@ -1,59 +1,474 @@
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion"
+import type { ReactNode } from "react"
+import { FileText, Mic, Search } from "lucide-react"
+import hljs from "highlight.js/lib/core"
+import bash from "highlight.js/lib/languages/bash"
+import cpp from "highlight.js/lib/languages/cpp"
+import csharp from "highlight.js/lib/languages/csharp"
+import css from "highlight.js/lib/languages/css"
+import go from "highlight.js/lib/languages/go"
+import java from "highlight.js/lib/languages/java"
+import javascript from "highlight.js/lib/languages/javascript"
+import json from "highlight.js/lib/languages/json"
+import markdown from "highlight.js/lib/languages/markdown"
+import php from "highlight.js/lib/languages/php"
+import python from "highlight.js/lib/languages/python"
+import ruby from "highlight.js/lib/languages/ruby"
+import rust from "highlight.js/lib/languages/rust"
+import sql from "highlight.js/lib/languages/sql"
+import typescript from "highlight.js/lib/languages/typescript"
+import xml from "highlight.js/lib/languages/xml"
+import yaml from "highlight.js/lib/languages/yaml"
+import { GithubIcon } from "./icons/GithubIcon"
 
-interface HistoryItem { q: string; a: string }
-
-interface Props {
-  history: HistoryItem[];
-  isStreaming: boolean;
-  response: string;
-  currentQ: string;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+interface HistoryItem {
+  q: string
+  a: string
 }
 
-export const MessageList = ({ history, isStreaming, response, currentQ, scrollRef }: Props) => {
-  const isEmpty = history.length === 0 && !isStreaming && !response;
+interface Props {
+  history: HistoryItem[]
+  isStreaming: boolean
+  response: string
+  currentQ: string
+  scrollRef: React.RefObject<HTMLDivElement | null>
+}
+
+const CAPABILITIES: {
+  icon: typeof FileText | typeof Mic | typeof GithubIcon
+  title: string
+  description: string
+  github?: boolean
+}[] = [
+  {
+    icon: FileText,
+    title: "Files",
+    description: "Attach a document, image, or spreadsheet, then ask questions about its content.",
+  },
+  {
+    icon: Mic,
+    title: "Voice input",
+    description: "Tap the mic, speak your question, and we transcribe it into the chat box.",
+  },
+  {
+    icon: GithubIcon,
+    title: "GitHub repos",
+    description: "Connect GitHub, index a public repository, and ask about the codebase.",
+    github: true,
+  },
+]
+
+hljs.registerLanguage("bash", bash)
+hljs.registerLanguage("cpp", cpp)
+hljs.registerLanguage("csharp", csharp)
+hljs.registerLanguage("css", css)
+hljs.registerLanguage("go", go)
+hljs.registerLanguage("java", java)
+hljs.registerLanguage("javascript", javascript)
+hljs.registerLanguage("json", json)
+hljs.registerLanguage("markdown", markdown)
+hljs.registerLanguage("php", php)
+hljs.registerLanguage("python", python)
+hljs.registerLanguage("ruby", ruby)
+hljs.registerLanguage("rust", rust)
+hljs.registerLanguage("sql", sql)
+hljs.registerLanguage("typescript", typescript)
+hljs.registerLanguage("xml", xml)
+hljs.registerLanguage("yaml", yaml)
+
+type AnswerPart =
+  | { type: "text"; value: string }
+  | { type: "code"; value: string; language?: string }
+
+const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*)/g
+const languageAliases: Record<string, string> = {
+  js: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  tsx: "typescript",
+  sh: "bash",
+  shell: "bash",
+  html: "xml",
+}
+
+function normalizeAnswer(answer: string) {
+  let next = answer.trim()
+
+  if (
+    ((next.startsWith('"') && next.endsWith('"')) ||
+      (next.startsWith("'") && next.endsWith("'"))) &&
+    next.length > 1
+  ) {
+    next = next.slice(1, -1)
+  }
+
+  return next
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+}
+
+function parseAnswer(answer: string): AnswerPart[] {
+  const parts: AnswerPart[] = []
+  const cleanedAnswer = normalizeAnswer(answer)
+  let cursor = 0
+
+  while (cursor < cleanedAnswer.length) {
+    const fenceStart = cleanedAnswer.indexOf("```", cursor)
+    if (fenceStart === -1) break
+
+    if (fenceStart > cursor) {
+      parts.push({ type: "text", value: cleanedAnswer.slice(cursor, fenceStart) })
+    }
+
+    let codeStart = fenceStart + 3
+    const lineEnd = cleanedAnswer.indexOf("\n", codeStart)
+    const infoLine =
+      lineEnd === -1 ? cleanedAnswer.slice(codeStart) : cleanedAnswer.slice(codeStart, lineEnd)
+    const infoMatch = infoLine.match(/^\s*([A-Za-z0-9_+.-]+)?\s*(.*)$/)
+    const language = infoMatch?.[1]
+    const inlineCode = infoMatch?.[2]?.trimStart() ?? ""
+
+    if (lineEnd === -1) {
+      parts.push({ type: "code", language, value: inlineCode })
+      cursor = cleanedAnswer.length
+      break
+    }
+
+    codeStart = lineEnd + 1
+    const fenceEnd = cleanedAnswer.indexOf("```", codeStart)
+    const rawCode =
+      fenceEnd === -1
+        ? cleanedAnswer.slice(codeStart)
+        : cleanedAnswer.slice(codeStart, fenceEnd)
+    const value = `${inlineCode ? `${inlineCode}\n` : ""}${rawCode}`.replace(/\n$/, "")
+
+    parts.push({ type: "code", language, value })
+    cursor = fenceEnd === -1 ? cleanedAnswer.length : fenceEnd + 3
+  }
+
+  if (cursor < cleanedAnswer.length) {
+    parts.push({ type: "text", value: cleanedAnswer.slice(cursor) })
+  }
+
+  return parts.length ? parts : [{ type: "text", value: cleanedAnswer }]
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
+function highlightCode(code: string, language?: string) {
+  const lang = languageAliases[language?.toLowerCase() ?? ""] ?? language?.toLowerCase()
+
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      const result = hljs.highlight(code, {
+        language: lang,
+        ignoreIllegals: true,
+      })
+      return { html: result.value, language: result.language ?? lang }
+    }
+
+    const result = hljs.highlightAuto(code)
+    return {
+      html: result.value,
+      language: result.language ?? language ?? "code",
+    }
+  } catch {
+    return { html: escapeHtml(code), language: language ?? "code" }
+  }
+}
+
+function CodeBlock({ code, language }: { code: string; language?: string }) {
+  const highlighted = highlightCode(code, language)
 
   return (
-    <div className="message-body" style={s.body} ref={scrollRef}>
+    <div className="oracle-code my-3 overflow-hidden rounded-xl border border-border bg-[#0b1020] shadow-sm">
+      <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.04] px-3 py-2">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+          {highlighted.language}
+        </span>
+        <span className="h-2 w-2 rounded-full bg-accent/80 shadow-[0_0_10px_color-mix(in_srgb,var(--accent)_55%,transparent)]" />
+      </div>
+      <pre className="m-0 max-w-full overflow-x-auto p-3.5 text-left text-[12px] leading-relaxed sm:text-[13px]">
+        <code
+          className={`hljs language-${highlighted.language}`}
+          dangerouslySetInnerHTML={{ __html: highlighted.html }}
+        />
+      </pre>
+    </div>
+  )
+}
+
+function Cursor() {
+  return (
+    <motion.span
+      className="ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 rounded-sm bg-accent"
+      animate={{ opacity: [1, 0] }}
+      transition={{ duration: 0.5, repeat: Infinity }}
+    />
+  )
+}
+
+function InlineText({ text }: { text: string }) {
+  const nodes: ReactNode[] = []
+  let cursor = 0
+
+  for (const match of text.matchAll(inlinePattern)) {
+    const index = match.index ?? 0
+    if (index > cursor) nodes.push(text.slice(cursor, index))
+
+    const token = match[0]
+    if (token.startsWith("`")) {
+      nodes.push(
+        <code key={`${index}-code`} className="oracle-inline-code">
+          {token.slice(1, -1)}
+        </code>
+      )
+    } else {
+      nodes.push(
+        <strong key={`${index}-strong`} className="font-semibold text-foreground">
+          {token.slice(2, -2)}
+        </strong>
+      )
+    }
+
+    cursor = index + token.length
+  }
+
+  if (cursor < text.length) nodes.push(text.slice(cursor))
+  return <>{nodes}</>
+}
+
+function cleanLine(line: string) {
+  return line
+    .replace(/^\s*>\s?/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isListLine(line: string) {
+  return /^\s*(?:[-*•]\s+|\d+[.)]\s+)/.test(line)
+}
+
+function renderList(lines: string[], startIndex: number) {
+  const firstLine = lines[startIndex]
+  const ordered = /^\s*\d+[.)]\s+/.test(firstLine)
+  const items: string[] = []
+  let index = startIndex
+
+  while (index < lines.length) {
+    const line = lines[index]
+    if (!line.trim()) break
+    if (ordered && !/^\s*\d+[.)]\s+/.test(line)) break
+    if (!ordered && !/^\s*[-*•]\s+/.test(line)) break
+
+    items.push(cleanLine(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")))
+    index++
+  }
+
+  const ListTag = ordered ? "ol" : "ul"
+
+  return {
+    node: (
+      <ListTag
+        key={`list-${startIndex}`}
+        className={
+          ordered
+            ? "oracle-list list-decimal"
+            : "oracle-list list-disc"
+        }
+      >
+        {items.map((item, itemIndex) => (
+          <li key={`${startIndex}-${itemIndex}`}>
+            <InlineText text={item} />
+          </li>
+        ))}
+      </ListTag>
+    ),
+    nextIndex: index,
+  }
+}
+
+function TextBlock({ text }: { text: string }) {
+  const lines = text.replace(/\r\n/g, "\n").split("\n")
+  const blocks: ReactNode[] = []
+  let index = 0
+
+  while (index < lines.length) {
+    const line = lines[index]
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      index++
+      continue
+    }
+
+    const heading = trimmed.match(/^(#{1,3})\s+(.+)$/)
+    if (heading) {
+      const HeadingTag = heading[1].length === 1 ? "h3" : "h4"
+      blocks.push(
+        <HeadingTag key={`heading-${index}`} className="oracle-heading">
+          <InlineText text={cleanLine(heading[2])} />
+        </HeadingTag>
+      )
+      index++
+      continue
+    }
+
+    if (isListLine(line)) {
+      const rendered = renderList(lines, index)
+      blocks.push(rendered.node)
+      index = rendered.nextIndex
+      continue
+    }
+
+    const paragraph: string[] = []
+    while (index < lines.length) {
+      const nextLine = lines[index]
+      const nextTrimmed = nextLine.trim()
+      if (!nextTrimmed || isListLine(nextLine) || /^(#{1,3})\s+/.test(nextTrimmed)) {
+        break
+      }
+      paragraph.push(cleanLine(nextLine))
+      index++
+    }
+
+    blocks.push(
+      <p key={`paragraph-${index}`} className="oracle-paragraph">
+        <InlineText text={paragraph.join(" ")} />
+      </p>
+    )
+  }
+
+  return <>{blocks}</>
+}
+
+function AnswerContent({ text, streaming }: { text: string; streaming?: boolean }) {
+  const parts = parseAnswer(text)
+  const lastPart = parts[parts.length - 1]
+
+  return (
+    <div className="oracle-answer text-sm leading-relaxed text-foreground/90">
+      {parts.map((part, index) =>
+        part.type === "code" ? (
+          <CodeBlock key={index} code={part.value} language={part.language} />
+        ) : part.value ? (
+          <TextBlock key={index} text={part.value} />
+        ) : null
+      )}
+      {streaming && lastPart && <Cursor />}
+    </div>
+  )
+}
+
+export const MessageList = ({
+  history,
+  isStreaming,
+  response,
+  currentQ,
+  scrollRef,
+}: Props) => {
+  const isEmpty = history.length === 0 && !isStreaming && !response
+
+  return (
+    <div
+      ref={scrollRef}
+      className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overflow-x-hidden px-1 py-2 sm:gap-7 sm:px-2 sm:py-3"
+    >
       <AnimatePresence>
         {isEmpty && (
-          <motion.div style={s.emptyState} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.6 }}>
-            <div style={s.emptyOrb}>
-              <motion.div style={s.emptyOrbRing} animate={{ rotate: 360 }} transition={{ duration: 10, repeat: Infinity, ease: "linear" }} />
-              <motion.div style={s.emptyOrbRing2} animate={{ rotate: -360 }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }} />
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9a84c" strokeWidth="1.5" strokeLinecap="round">
-                <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
+          <motion.div
+            className="empty-state-shell flex flex-1 flex-col items-center gap-4 px-2 text-center sm:gap-5 sm:px-5 lg:gap-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.6 }}
+          >
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-card/80 shadow-[var(--shadow-float)] sm:h-16 sm:w-16 lg:h-20 lg:w-20 lg:rounded-3xl">
+              <motion.div
+                className="absolute inset-2 rounded-2xl border border-transparent border-t-accent/40 border-r-[color:var(--brand-secondary)]/40"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+              />
+              <motion.div
+                className="absolute inset-4 rounded-xl border border-transparent border-b-[color:var(--brand-tertiary)]/35 border-l-accent/20"
+                animate={{ rotate: -360 }}
+                transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
+              />
+              <Search className="h-5 w-5 text-accent sm:h-6 sm:w-6 lg:h-7 lg:w-7" strokeWidth={1.5} />
             </div>
-            <div style={s.emptyTitle}>Begin your inquiry</div>
-            <div style={s.emptyDesc}>
-  Ask anything — upload a PDF, drop a question,
-  <br />
-  or paste a GitHub URL to explore any codebase.
-</div>
-            <div style={s.emptyTags}>
-              {["Document Analysis", "Semantic Search", "RAG Pipeline", "Knowledge Retrieval"].map((t) => (
-                <span key={t} style={s.emptyTag}>{t}</span>
-              ))}
+            <div>
+              <h2 className="text-lg font-semibold text-foreground sm:text-xl lg:text-2xl">
+                Begin your inquiry
+              </h2>
+              <p className="mx-auto mt-1.5 max-w-[34rem] text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                Upload a file, use voice, or index a GitHub repo — then ask Oracle anything
+                about your sources.
+              </p>
+            </div>
+            <div className="grid w-full max-w-[46rem] grid-cols-1 gap-2.5 min-[560px]:grid-cols-3 sm:gap-3">
+              {CAPABILITIES.map((cap) => {
+                const Icon = cap.icon
+                return (
+                  <div
+                    key={cap.title}
+                    className="group flex min-h-[112px] flex-row items-start gap-3 rounded-xl border border-border bg-card/80 p-3 text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-[var(--shadow-float)] min-[560px]:min-h-[132px] min-[560px]:flex-col min-[560px]:gap-2 lg:p-4"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-accent transition-colors group-hover:border-accent/30 group-hover:bg-accent/10 sm:h-9 sm:w-9 sm:rounded-xl">
+                      {cap.github ? (
+                        <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                      ) : (
+                        <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" strokeWidth={1.75} />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-semibold text-foreground">{cap.title}</h3>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground min-[560px]:text-[10.5px] lg:text-[11px]">
+                        {cap.description}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {history.map((item, i) => (
-        <motion.div key={i} style={s.turn} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
-          <div style={s.questionRow}>
-            <div style={s.questionBubble}>
-              <span style={s.questionLabel}>YOU</span>
-              <p style={s.questionText}>{item.q}</p>
+        <motion.div
+          key={i}
+          className="flex flex-col gap-4"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="flex justify-end">
+            <div className="max-w-[92%] rounded-2xl rounded-br-md border border-border bg-[var(--user-bubble)] px-3.5 py-3 shadow-sm sm:max-w-[75%] sm:px-4 sm:py-3.5">
+              <span className="mb-1.5 block font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                YOU
+              </span>
+              <p className="m-0 text-sm leading-relaxed text-foreground">{item.q}</p>
             </div>
           </div>
-          <div className="message-answer-row" style={s.answerRow}>
-            <div style={s.answerAvatar}><div style={s.avatarInner}>O</div></div>
-            <div className="message-answer-card" style={s.answerCard}>
-              <div style={s.answerBar} />
-              <span style={s.answerLabel}>ORACLE</span>
-              <p className="message-answer-text" style={s.answerText}>{item.a}</p>
+          <div className="flex gap-3 sm:gap-3.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-accent/25 bg-card text-sm font-bold text-accent shadow-sm sm:h-9 sm:w-9">
+              O
+            </div>
+            <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl rounded-tl-md border border-border bg-[var(--assistant-bubble)] px-3.5 py-3 shadow-sm sm:px-4 sm:py-3.5">
+              <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-accent via-[color:var(--brand-secondary)] to-transparent" />
+              <span className="mb-2 block font-mono text-[9px] tracking-[0.2em] text-accent/70">
+                ORACLE
+              </span>
+              <AnswerContent text={item.a} />
             </div>
           </div>
         </motion.div>
@@ -61,39 +476,71 @@ export const MessageList = ({ history, isStreaming, response, currentQ, scrollRe
 
       <AnimatePresence>
         {isStreaming && (
-          <motion.div style={s.turn} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+          <motion.div
+            className="flex flex-col gap-4"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+          >
             {currentQ && (
-              <div style={s.questionRow}>
-                <div style={s.questionBubble}>
-                  <span style={s.questionLabel}>YOU</span>
-                  <p style={s.questionText}>{currentQ}</p>
+              <div className="flex justify-end">
+                <div className="max-w-[92%] rounded-2xl rounded-br-md border border-border bg-[var(--user-bubble)] px-3.5 py-3 shadow-sm sm:max-w-[75%] sm:px-4 sm:py-3.5">
+                  <span className="mb-1.5 block font-mono text-[9px] tracking-[0.2em] text-muted-foreground">
+                    YOU
+                  </span>
+                  <p className="m-0 text-sm leading-relaxed text-foreground">{currentQ}</p>
                 </div>
               </div>
             )}
-            <div className="message-answer-row" style={s.answerRow}>
-              <div style={s.answerAvatar}>
-                <motion.div style={s.avatarInner} animate={{ boxShadow: ["0 0 0px #c9a84c00", "0 0 16px #c9a84c88", "0 0 0px #c9a84c00"] }} transition={{ duration: 1.5, repeat: Infinity }}>O</motion.div>
-              </div>
-              <div className="message-answer-card" style={s.answerCard}>
-                <div style={s.answerBar} />
-                <div style={s.answerHeaderRow}>
-                  <span style={s.answerLabel}>ORACLE</span>
-                  <div style={s.generatingBadge}>
-                    <motion.span style={s.genDot} animate={{ opacity: [1, 0.2, 1] }} transition={{ duration: 0.9, repeat: Infinity }} />
-                    <span style={s.genLabel}>GENERATING</span>
-                  </div>
+            <div className="flex gap-3 sm:gap-3.5">
+              <motion.div
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-accent/25 bg-card text-sm font-bold text-accent shadow-sm sm:h-9 sm:w-9"
+                animate={{
+                  boxShadow: [
+                    "0 0 0px transparent",
+                    "0 0 16px color-mix(in srgb, var(--accent) 45%, transparent)",
+                    "0 0 0px transparent",
+                  ],
+                }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                O
+              </motion.div>
+              <div className="relative min-w-0 flex-1 overflow-hidden rounded-2xl rounded-tl-md border border-border bg-[var(--assistant-bubble)] px-3.5 py-3 shadow-sm sm:px-4 sm:py-3.5">
+                <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-accent via-[color:var(--brand-secondary)] to-transparent" />
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-[9px] tracking-[0.2em] text-accent/70">
+                    ORACLE
+                  </span>
+                  <span className="flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5">
+                    <motion.span
+                      className="h-1 w-1 rounded-full bg-accent"
+                      animate={{ opacity: [1, 0.2, 1] }}
+                      transition={{ duration: 0.9, repeat: Infinity }}
+                    />
+                    <span className="font-mono text-[8px] font-semibold tracking-widest text-accent/80">
+                      GENERATING
+                    </span>
+                  </span>
                 </div>
                 {response === "" ? (
-                  <div style={s.thinkRow}>
+                  <div className="flex items-center gap-1.5 py-1">
                     {[0, 1, 2].map((j) => (
-                      <motion.span key={j} style={s.thinkDot} animate={{ y: [0, -7, 0], opacity: [0.3, 1, 0.3] }} transition={{ duration: 0.85, repeat: Infinity, delay: j * 0.16, ease: "easeInOut" }} />
+                      <motion.span
+                        key={j}
+                        className="inline-block h-1.5 w-1.5 rounded-full bg-accent"
+                        animate={{ y: [0, -6, 0], opacity: [0.3, 1, 0.3] }}
+                        transition={{
+                          duration: 0.85,
+                          repeat: Infinity,
+                          delay: j * 0.16,
+                          ease: "easeInOut",
+                        }}
+                      />
                     ))}
                   </div>
                 ) : (
-                  <p className="message-answer-text" style={s.answerText}>
-                    {response}
-                    <motion.span style={s.cursor} animate={{ opacity: [1, 0] }} transition={{ duration: 0.5, repeat: Infinity }} />
-                  </p>
+                  <AnswerContent text={response} streaming />
                 )}
               </div>
             </div>
@@ -101,36 +548,5 @@ export const MessageList = ({ history, isStreaming, response, currentQ, scrollRe
         )}
       </AnimatePresence>
     </div>
-  );
-};
-
-const s: Record<string, React.CSSProperties> = {
-  body: { flex: 1, minHeight: 0, minWidth: 0, overflowY: "auto", overflowX: "hidden", padding: "8px 4px 16px", scrollbarWidth: "thin", scrollbarColor: "#222230 transparent", display: "flex", flexDirection: "column", gap: "32px" },
-  emptyState: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 20px", gap: "20px", textAlign: "center" },
-  emptyOrb: { width: "80px", height: "80px", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" },
-  emptyOrbRing: { position: "absolute", inset: 0, borderRadius: "50%", border: "1.5px solid transparent", borderTopColor: "#c9a84c66", borderRightColor: "#c9a84c22" },
-  emptyOrbRing2: { position: "absolute", inset: "8px", borderRadius: "50%", border: "1px solid transparent", borderBottomColor: "#c9a84c44", borderLeftColor: "#c9a84c11" },
-  emptyTitle: { fontSize: "20px", fontWeight: 600, letterSpacing: "0.05em", color: "#c8c8d8", fontFamily: "'DM Sans','Segoe UI',sans-serif" },
-  emptyDesc: { fontSize: "13px", color: "#4a4a5a", lineHeight: "1.8", fontFamily: "'DM Sans','Segoe UI',sans-serif", maxWidth: "360px" },
-  emptyTags: { display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center", marginTop: "8px" },
-  emptyTag: { fontSize: "10px", letterSpacing: "0.12em", padding: "5px 12px", borderRadius: "999px", border: "1px solid #222230", color: "#4a4a58", background: "#111118" },
-  turn: { display: "flex", flexDirection: "column", gap: "16px" },
-  questionRow: { display: "flex", justifyContent: "flex-end" },
-  questionBubble: { maxWidth: "min(85%, 100%)", background: "#141420", border: "1px solid #252535", borderRadius: "16px 16px 4px 16px", padding: "14px 18px" },
-  questionLabel: { fontSize: "9px", letterSpacing: "0.2em", color: "#6b6b78", display: "block", marginBottom: "6px" },
-  questionText: { margin: 0, fontSize: "14px", lineHeight: "1.7", color: "#c8c8d8", fontFamily: "'DM Sans','Segoe UI',sans-serif", fontWeight: 400 },
-  answerRow: { display: "flex", gap: "14px", alignItems: "flex-start", minWidth: 0, maxWidth: "100%" },
-  answerAvatar: { width: "38px", height: "38px", flexShrink: 0, borderRadius: "50%", border: "1.5px solid #c9a84c44", display: "flex", alignItems: "center", justifyContent: "center", background: "#111118" },
-  avatarInner: { fontSize: "14px", fontWeight: 700, color: "#c9a84c", letterSpacing: "0.05em" },
-  answerCard: { flex: 1, minWidth: 0, background: "#0e0e14", border: "1px solid #1e1e2a", borderRadius: "4px 16px 16px 16px", padding: "16px 18px", position: "relative", overflow: "hidden", overflowWrap: "anywhere" },
-  answerBar: { position: "absolute", top: 0, left: 0, right: 0, height: "2px", background: "linear-gradient(90deg, #c9a84c 0%, #c9a84c55 60%, transparent 100%)" },
-  answerHeaderRow: { display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" },
-  answerLabel: { fontSize: "9px", letterSpacing: "0.2em", color: "#c9a84c88", display: "block" },
-  answerText: { margin: 0, fontSize: "14px", lineHeight: "1.85", color: "#d0d0e0", fontFamily: "'DM Sans','Segoe UI',sans-serif", whiteSpace: "pre-wrap", fontWeight: 400, overflowWrap: "anywhere", wordBreak: "break-word" },
-  generatingBadge: { display: "flex", alignItems: "center", gap: "5px", padding: "2px 9px", borderRadius: "999px", border: "1px solid #c9a84c33", background: "#c9a84c0a" },
-  genDot: { display: "inline-block", width: "5px", height: "5px", borderRadius: "50%", background: "#c9a84c" },
-  genLabel: { fontSize: "8px", letterSpacing: "0.2em", color: "#c9a84c88", fontWeight: 600 },
-  thinkRow: { display: "flex", gap: "7px", alignItems: "center", padding: "6px 0" },
-  thinkDot: { display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#c9a84c" },
-  cursor: { display: "inline-block", width: "2px", height: "14px", background: "#c9a84c", borderRadius: "1px", marginLeft: "2px", verticalAlign: "text-bottom" },
-};
+  )
+}
