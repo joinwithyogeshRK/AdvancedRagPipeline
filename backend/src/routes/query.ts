@@ -23,7 +23,9 @@ const supabase = createClient(
 )
 
 const query = async (req: Request, res: Response) => {
+ 
   try {
+     // we retrieve the information from the request
     const file   = req.file
     const query  = req.body.query
     const userId = req.supabaseUserId!
@@ -46,10 +48,10 @@ const query = async (req: Request, res: Response) => {
 
     let bm25Chunks: BM25Chunk[] = []
 
-    // ── Process PDF if uploaded ─────────────────────────────
+
     if (file && file.buffer) {
       let text: string
-
+      // try catch block to extract the text from the pdf and to throw error if any
       try {
         const result = await extractTextFromFile(file.buffer, file.originalname, file.mimetype)
         text = result.text
@@ -70,7 +72,7 @@ const query = async (req: Request, res: Response) => {
         })
       }
 
-      const chunks = await chunkText(text)
+      const chunks = chunkText(text)
       console.log(`✅ Step 2 — ${chunks.length} chunks created`)
 
       const ts     = Date.now()
